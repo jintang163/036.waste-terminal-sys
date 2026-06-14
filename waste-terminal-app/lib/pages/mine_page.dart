@@ -177,6 +177,13 @@ class _MinePageState extends State<MinePage> {
           ),
           Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
           _buildMenuItem(
+            icon: Icons.cloud_upload,
+            iconColor: AppTheme.infoColor,
+            title: '国家平台上报',
+            onTap: () => Navigator.pushNamed(context, AppRoutes.platformReport),
+          ),
+          Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
+          _buildMenuItem(
             icon: Icons.settings,
             iconColor: Colors.grey,
             title: '系统设置',

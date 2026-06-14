@@ -576,4 +576,13 @@ class ApiConstants {
   static const String statsWasteOut = '/stats/waste-out';
   static const String statsInventory = '/stats/inventory';
   static const String statsWarning = '/stats/warning';
+
+  /// 国家平台上报
+  static const String platformReportDashboard = '/platform-report/dashboard';
+  static const String platformReportStatistics = '/platform-report/statistics';
+  static const String platformReportFailed = '/platform-report/failed';
+  static const String platformReportRetryQueue = '/platform-report/retry-queue';
+  static const String platformReportManualRetry = '/platform-report/manual-retry';
+  static const String platformReportBatchRetry = '/platform-report/batch-manual-retry';
+  static const String platformReportPage = '/platform-report/page';
 }

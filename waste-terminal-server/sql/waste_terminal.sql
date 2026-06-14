@@ -551,3 +551,76 @@ INSERT INTO waste_container (container_code, container_type, container_spec, mat
 ('C20240003', 'barrel', '200L', 'HDPE', 200.00, 1, 'A区-02号货架', 1),
 ('C20240004', 'bag', '1吨袋', 'PP', 1000.00, 1, 'B区-03号货架', 1),
 ('C20240005', 'bag', '1吨袋', 'PP', 1000.00, 1, 'B区-03号货架', 1);
+
+-- =============================================
+-- 15. 国家平台上报记录表
+-- =============================================
+DROP TABLE IF EXISTS platform_report_record;
+CREATE TABLE platform_report_record (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    report_no VARCHAR(64) NOT NULL COMMENT '上报编号(系统生成)',
+    biz_type VARCHAR(32) NOT NULL COMMENT '业务类型: WASTE_IN-入库 WASTE_OUT-出库 TRANSFER_ORDER-电子联单 TRANSFER_COMPLETE-联单完成',
+    biz_id VARCHAR(64) NOT NULL COMMENT '业务ID(关联本地业务表主键)',
+    biz_no VARCHAR(64) COMMENT '业务编号(入库单号/出库单号/联单编号)',
+    api_path VARCHAR(128) COMMENT '上报接口路径',
+    report_status TINYINT NOT NULL DEFAULT 0 COMMENT '上报状态: 0-待上报 1-成功 2-失败 3-重试中',
+    retry_count INT NOT NULL DEFAULT 0 COMMENT '已重试次数(累加)',
+    max_retry_count INT NOT NULL DEFAULT 3 COMMENT '最大重试次数',
+    first_report_time DATETIME COMMENT '首次上报时间',
+    last_report_time DATETIME COMMENT '最近上报时间',
+    next_retry_time DATETIME COMMENT '下次重试时间',
+    request_payload TEXT COMMENT '请求报文(加密后)',
+    response_payload TEXT COMMENT '响应报文',
+    fail_reason VARCHAR(500) COMMENT '失败原因',
+    national_biz_no VARCHAR(64) COMMENT '国家平台返回的业务编号',
+    enterprise_id BIGINT COMMENT '企业ID',
+    device_id VARCHAR(64) COMMENT '设备ID',
+    duration_ms BIGINT COMMENT '上报耗时(毫秒)',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by VARCHAR(64) COMMENT '创建人',
+    update_by VARCHAR(64) COMMENT '更新人',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_biz_type_id (biz_type, biz_id),
+    KEY idx_report_no (report_no),
+    KEY idx_biz_type (biz_type),
+    KEY idx_report_status (report_status),
+    KEY idx_enterprise_id (enterprise_id),
+    KEY idx_last_report_time (last_report_time),
+    KEY idx_next_retry_time (next_retry_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='国家平台上报记录表';
+
+-- =============================================
+-- 16. 数据版本管理表
+-- =============================================
+DROP TABLE IF EXISTS data_version;
+CREATE TABLE data_version (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '版本ID',
+    data_type VARCHAR(32) NOT NULL COMMENT '数据类型: WASTE_CATALOG-危废名录 RECEIVER_UNIT-接收单位 VEHICLE-车辆 CONTAINER-容器 INVENTORY-库存',
+    version BIGINT NOT NULL DEFAULT 1 COMMENT '版本号(递增)',
+    version_time DATETIME NOT NULL COMMENT '版本生效时间',
+    change_summary VARCHAR(500) COMMENT '变更摘要',
+    record_count BIGINT DEFAULT 0 COMMENT '该版本包含记录数',
+    enterprise_id BIGINT COMMENT '企业ID(空表示全局数据)',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by VARCHAR(64) COMMENT '创建人',
+    update_by VARCHAR(64) COMMENT '更新人',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    KEY idx_data_type (data_type),
+    KEY idx_data_type_version (data_type, version),
+    KEY idx_enterprise_id (enterprise_id),
+    KEY idx_version_time (version_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据版本管理表';
+
+-- =============================================
+-- 初始化数据版本
+-- =============================================
+INSERT INTO data_version (data_type, version, version_time, change_summary, record_count) VALUES
+('WASTE_CATALOG', 1, NOW(), '初始化危废名录50条', 50, NULL),
+('RECEIVER_UNIT', 1, NOW(), '初始化接收单位', 0, NULL),
+('VEHICLE', 1, NOW(), '初始化车辆信息', 0, NULL),
+('CONTAINER', 1, NOW(), '初始化容器信息5条', 5, 1),
+('INVENTORY', 1, NOW(), '初始化库存', 0, 1);

@@ -264,6 +264,33 @@ public class NationalPlatformServiceImpl implements NationalPlatformService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PlatformReportRecord createReportRecord(String bizType, String bizId, String bizNo, String apiPath, String requestPayload, Long enterpriseId) {
+        LambdaQueryWrapper<PlatformReportRecord> existWrapper = new LambdaQueryWrapper<>();
+        existWrapper.eq(PlatformReportRecord::getBizType, bizType);
+        existWrapper.eq(PlatformReportRecord::getBizId, bizId);
+        if (enterpriseId != null) {
+            existWrapper.eq(PlatformReportRecord::getEnterpriseId, enterpriseId);
+        }
+        existWrapper.orderByDesc(PlatformReportRecord::getId);
+        existWrapper.last("LIMIT 1");
+        PlatformReportRecord existing = platformReportRecordMapper.selectOne(existWrapper);
+
+        if (existing != null) {
+            existing.setApiPath(apiPath);
+            existing.setLastReportTime(LocalDateTime.now());
+            if (existing.getReportStatus() == null || existing.getReportStatus() != REPORT_STATUS_SUCCESS) {
+                existing.setReportStatus(REPORT_STATUS_PENDING);
+            }
+            if (requestPayload != null && requestPayload.length() > 4000) {
+                existing.setRequestPayload(requestPayload.substring(0, 4000));
+            } else {
+                existing.setRequestPayload(requestPayload);
+            }
+            platformReportRecordMapper.updateById(existing);
+            log.info("复用已有上报记录(幂等), id={}, bizType={}, bizId={}, retryCount={}",
+                    existing.getId(), bizType, bizId, existing.getRetryCount());
+            return existing;
+        }
+
         PlatformReportRecord record = new PlatformReportRecord();
         record.setReportNo(IdGeneratorUtils.generateSyncNo());
         record.setBizType(bizType);
@@ -477,50 +504,82 @@ public class NationalPlatformServiceImpl implements NationalPlatformService {
         String bizType = record.getBizType();
         String bizId = record.getBizId();
 
+        record.setReportStatus(REPORT_STATUS_PENDING);
+        record.setLastReportTime(LocalDateTime.now());
+        record.setRetryCount(record.getRetryCount() != null ? record.getRetryCount() + 1 : 1);
+        platformReportRecordMapper.updateById(record);
+
         try {
             if (BIZ_TYPE_WASTE_IN.equals(bizType)) {
                 WasteInRecord wasteIn = wasteInRecordMapper.selectById(Long.parseLong(bizId));
                 if (wasteIn != null) {
-                    success = reportWasteInIot(wasteIn);
+                    Map<String, Object> bizData = buildIotRktzData(wasteIn);
+                    long startTime = System.currentTimeMillis();
+                    success = doReport("/Account/saveRktz", bizData, wasteIn.getInNo());
+                    long durationMs = System.currentTimeMillis() - startTime;
+                    if (success) {
+                        record.setNationalBizNo(getNationalPlatformBizNo(wasteIn.getInNo()));
+                        updateReportRecordSuccess(record, null, record.getNationalBizNo(), durationMs);
+                    } else {
+                        updateReportRecordFailed(record, "手工补报IoT入库接口失败", durationMs);
+                    }
                 }
             } else if (BIZ_TYPE_WASTE_OUT.equals(bizType)) {
                 WasteOutRecord wasteOut = wasteOutRecordMapper.selectById(Long.parseLong(bizId));
                 if (wasteOut != null) {
-                    success = reportWasteOutIot(wasteOut);
+                    Map<String, Object> bizData = buildIotCktzData(wasteOut);
+                    long startTime = System.currentTimeMillis();
+                    success = doReport("/Account/saveCktz", bizData, wasteOut.getOutNo());
+                    long durationMs = System.currentTimeMillis() - startTime;
+                    if (success) {
+                        record.setNationalBizNo(getNationalPlatformBizNo(wasteOut.getOutNo()));
+                        updateReportRecordSuccess(record, null, record.getNationalBizNo(), durationMs);
+                    } else {
+                        updateReportRecordFailed(record, "手工补报IoT出库接口失败", durationMs);
+                    }
                 }
             } else if (BIZ_TYPE_TRANSFER_ORDER.equals(bizType)) {
                 WasteTransferOrder order = wasteTransferOrderMapper.selectById(Long.parseLong(bizId));
                 if (order != null) {
-                    success = reportElectronicManifest(order);
+                    Map<String, Object> bizData = buildElectronicManifestData(order);
+                    long startTime = System.currentTimeMillis();
+                    success = doReport("/manifest/report", bizData, order.getOrderNo());
+                    long durationMs = System.currentTimeMillis() - startTime;
+                    if (success) {
+                        record.setNationalBizNo(getNationalPlatformBizNo(order.getOrderNo()));
+                        updateReportRecordSuccess(record, null, record.getNationalBizNo(), durationMs);
+                    } else {
+                        updateReportRecordFailed(record, "手工补报电子联单失败", durationMs);
+                    }
                 }
             } else if (BIZ_TYPE_TRANSFER_COMPLETE.equals(bizType)) {
                 WasteTransferOrder order = wasteTransferOrderMapper.selectById(Long.parseLong(bizId));
                 if (order != null) {
-                    success = reportTransferOrderCompletion(order);
+                    Map<String, Object> bizData = buildTransferOrderCompletionData(order);
+                    long startTime = System.currentTimeMillis();
+                    success = doReport("/transfer/complete", bizData, order.getOrderNo());
+                    long durationMs = System.currentTimeMillis() - startTime;
+                    if (success) {
+                        updateReportRecordSuccess(record, null, record.getNationalBizNo(), durationMs);
+                    } else {
+                        updateReportRecordFailed(record, "手工补报联单完成失败", durationMs);
+                    }
                 }
             }
 
             if (success) {
-                record.setReportStatus(REPORT_STATUS_SUCCESS);
-                record.setLastReportTime(LocalDateTime.now());
-                record.setFailReason(null);
-                record.setRetryCount(record.getRetryCount() != null ? record.getRetryCount() + 1 : 1);
-                platformReportRecordMapper.updateById(record);
-
                 retryResult.setSuccess(true);
                 retryResult.setMessage("手工补报成功");
                 retryResult.setNationalBizNo(record.getNationalBizNo());
             } else {
-                record.setReportStatus(REPORT_STATUS_FAILED);
-                record.setRetryCount(record.getRetryCount() != null ? record.getRetryCount() + 1 : 1);
-                record.setFailReason("手工补报失败");
-                platformReportRecordMapper.updateById(record);
-
                 retryResult.setSuccess(false);
                 retryResult.setMessage("手工补报失败，请检查网络连接或联系管理员");
             }
         } catch (Exception e) {
             log.error("手工补报异常, recordId={}", recordId, e);
+            record.setReportStatus(REPORT_STATUS_FAILED);
+            record.setFailReason("手工补报异常: " + e.getMessage());
+            platformReportRecordMapper.updateById(record);
             retryResult.setSuccess(false);
             retryResult.setMessage("手工补报异常: " + e.getMessage());
         }
@@ -529,11 +588,9 @@ public class NationalPlatformServiceImpl implements NationalPlatformService {
     }
 
     private void scheduleRetry(PlatformReportRecord record, Object bizEntity, String bizType) {
-        if (record.getRetryCount() == null) {
-            record.setRetryCount(0);
-        }
-        if (record.getRetryCount() >= record.getMaxRetryCount()) {
-            log.warn("上报已达最大重试次数, recordId={}, retryCount={}", record.getId(), record.getRetryCount());
+        int currentRetryCount = record.getRetryCount() != null ? record.getRetryCount() : 0;
+        if (currentRetryCount >= record.getMaxRetryCount()) {
+            log.warn("上报已达最大重试次数, recordId={}, retryCount={}", record.getId(), currentRetryCount);
             updateReportRecordFailed(record, "已达最大重试次数(" + record.getMaxRetryCount() + "次)", 0L);
             return;
         }

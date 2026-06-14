@@ -12,6 +12,7 @@ import '../pages/warning_page.dart';
 import '../pages/inventory_check_page.dart';
 import '../pages/scan_page.dart';
 import '../pages/mine_page.dart';
+import '../pages/platform_report_dashboard_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -39,6 +40,7 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String sync = '/sync';
   static const String about = '/about';
+  static const String platformReport = '/platform_report';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -67,6 +69,7 @@ class AppRoutes {
         settings: (context) => const _PlaceholderPage(title: 'Settings'),
         sync: (context) => const _PlaceholderPage(title: 'Sync'),
         about: (context) => const _PlaceholderPage(title: 'About'),
+        platformReport: (context) => const PlatformReportDashboardPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
