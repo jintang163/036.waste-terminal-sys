@@ -624,3 +624,99 @@ INSERT INTO data_version (data_type, version, version_time, change_summary, reco
 ('VEHICLE', 1, NOW(), '初始化车辆信息', 0, NULL),
 ('CONTAINER', 1, NOW(), '初始化容器信息5条', 5, 1),
 ('INVENTORY', 1, NOW(), '初始化库存', 0, 1);
+
+-- =============================================
+-- 17. 危废包装推荐规则表
+-- =============================================
+DROP TABLE IF EXISTS waste_packaging_rule;
+CREATE TABLE waste_packaging_rule (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '规则ID',
+    rule_code VARCHAR(32) NOT NULL COMMENT '规则编码',
+    rule_name VARCHAR(128) NOT NULL COMMENT '规则名称',
+    waste_category VARCHAR(32) COMMENT '危废类别(匹配HW01-HW49, ALL表示通用)',
+    hazard_code VARCHAR(32) COMMENT '危险特性代码(T/C/I/R, 多值逗号分隔)',
+    physical_state VARCHAR(16) COMMENT '物理状态(liquid/solid/sludge/paste)',
+    recommended_container_type VARCHAR(32) COMMENT '推荐容器类型(barrel/bag/box/tank/drum)',
+    recommended_container_spec VARCHAR(64) COMMENT '推荐容器规格',
+    recommended_material VARCHAR(64) COMMENT '推荐材质',
+    recommended_capacity DECIMAL(10,2) COMMENT '推荐容量(L或kg)',
+    max_weight_per_package DECIMAL(10,2) COMMENT '每包最大重量(kg)',
+    seal_requirement VARCHAR(200) COMMENT '密封要求',
+    label_requirement VARCHAR(200) COMMENT '标签要求',
+    precaution VARCHAR(500) COMMENT '注意事项',
+    priority INT DEFAULT 99 COMMENT '优先级(数字越小优先级越高)',
+    status TINYINT DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    create_by VARCHAR(64),
+    update_by VARCHAR(64),
+    deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_rule_code (rule_code),
+    KEY idx_waste_category (waste_category),
+    KEY idx_hazard_code (hazard_code),
+    KEY idx_physical_state (physical_state)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='危废包装推荐规则表';
+
+-- =============================================
+-- 初始化包装推荐规则
+-- =============================================
+INSERT INTO waste_packaging_rule (rule_code, rule_name, waste_category, hazard_code, physical_state, recommended_container_type, recommended_container_spec, recommended_material, recommended_capacity, max_weight_per_package, seal_requirement, label_requirement, precaution, priority, status) VALUES
+('PKG-LIQ-001', '液态危废-吨桶', 'ALL', 'T,C', 'liquid', 'drum', '200L吨桶', 'HDPE高密度聚乙烯', 200.00, 250.00, '双层密封盖+防渗漏托盘', '粘贴危险废物标签(腐蚀性/毒性标识)', '液态危废严禁与其他物质混装，确保密封，防止挥发和渗漏', 1, 1),
+('PKG-LIQ-002', '液态危废-钢桶', 'HW08,HW09', 'T', 'liquid', 'drum', '200L钢桶', '碳钢内涂防腐', 200.00, 280.00, '螺栓紧固密封盖', '粘贴危险废物标签', '废矿物油/废乳化液使用钢桶，注意防腐涂层无破损', 1, 1),
+('PKG-SOL-001', '固态危废-编织袋', 'ALL', 'T,I', 'solid', 'bag', '1吨编织袋', 'PP聚丙烯加厚编织袋+PE内膜', 1000.00, 1000.00, '内膜袋热合+外袋机械缝口', '外部粘贴危险废物标签，标签朝外', '固体危废使用编织袋，避免尖锐物刺破，每袋重量不超1吨', 1, 1),
+('PKG-SOL-002', '固态危废-吨袋', 'HW18,HW49', 'T', 'solid', 'bag', '集装吨袋', 'PP加厚吊带吨袋', 1500.00, 1500.00, '双层内衬，顶部扎口', '粘贴危废标签，标明毛重/净重', '焚烧残渣/飞灰等使用吨袋包装，便于叉车装卸', 2, 1),
+('PKG-SLG-001', '污泥类-钢塑复合桶', 'ALL', 'T,C', 'sludge', 'drum', '200L钢塑复合桶', '钢塑复合(外层钢+内层PE)', 200.00, 300.00, '压盖密封+内层PE袋', '粘贴危险废物标签', '污泥类使用钢塑桶防止渗漏和异味扩散，填充率不超85%', 1, 1),
+('PKG-SLG-002', '污泥类-吨袋', 'HW21,HW22', 'T', 'sludge', 'bag', '防水吨袋', '防水涂层PP吨袋+内衬', 1000.00, 1200.00, '内层扎口+外层密封', '粘贴危险废物标签并注明含水率', '含重金属污泥使用防水吨袋，防止渗滤液泄漏', 2, 1),
+('PKG-PST-001', '膏状物-塑料桶', 'HW12,HW13', 'T,I', 'paste', 'barrel', '50kg塑料桶', 'HDPE螺纹口塑料桶', 50.00, 60.00, '螺纹盖+PE内衬袋双层密封', '粘贴危险废物标签', '漆渣/油墨渣等膏状物使用小规格塑料桶，便于搬运和处理', 1, 1),
+('PKG-COR-001', '腐蚀性-耐腐桶', 'HW34,HW35', 'C', 'liquid', 'drum', '200L耐腐桶', 'PVDF氟塑料或HDPE加厚', 200.00, 220.00, '特氟龙密封垫+防腐蚀外盖', '粘贴腐蚀性危废标签(红底白字)', '废酸/废碱必须使用耐腐蚀性材质容器，严禁使用金属容器', 1, 1),
+('PKG-TOX-001', '剧毒类-密封钢桶', 'HW03', 'T', 'solid', 'drum', '100L密封钢桶', '加厚钢板焊接+内衬防腐', 100.00, 150.00, '螺栓紧固+铅封', '剧毒危废专用标签，双人双锁管理', '剧毒类危废使用密封钢桶，铅封并全程登记管理', 1, 1),
+('PKG-EXP-001', '周转箱-通用', 'ALL', NULL, NULL, 'box', '标准危废周转箱', '工程塑料(PE/PP)', 500.00, 500.00, '箱盖密封扣', '箱盖表面粘贴标签', '周转箱用于厂内临时中转，便于搬运和管理，定期检查密封', 2, 1);
+
+-- =============================================
+-- 18. 危废禁忌物关系表
+-- =============================================
+DROP TABLE IF EXISTS waste_incompatibility;
+CREATE TABLE waste_incompatibility (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'ID',
+    waste_code_a VARCHAR(32) COMMENT '危废代码A(精确匹配)',
+    waste_name_a VARCHAR(128) COMMENT '危废名称A',
+    waste_category_a VARCHAR(32) COMMENT '危废类别A(HW01-HW49, 可按类别匹配)',
+    waste_code_b VARCHAR(32) COMMENT '危废代码B(精确匹配)',
+    waste_name_b VARCHAR(128) COMMENT '危废名称B',
+    waste_category_b VARCHAR(32) COMMENT '危废类别B',
+    incompatibility_level TINYINT NOT NULL DEFAULT 2 COMMENT '不相容等级: 1-注意 2-警告 3-严重禁忌',
+    reaction_type VARCHAR(64) COMMENT '反应类型(中和/氧化还原/放热/产气/爆炸/聚合)',
+    hazard_description VARCHAR(500) COMMENT '危险描述',
+    emergency_measure VARCHAR(500) COMMENT '应急措施',
+    separation_requirement VARCHAR(500) COMMENT '隔离要求',
+    status TINYINT DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    create_by VARCHAR(64),
+    update_by VARCHAR(64),
+    deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    KEY idx_waste_code_a (waste_code_a),
+    KEY idx_waste_code_b (waste_code_b),
+    KEY idx_waste_category_a (waste_category_a),
+    KEY idx_waste_category_b (waste_category_b),
+    KEY idx_level (incompatibility_level)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='危废禁忌物关系表';
+
+-- =============================================
+-- 初始化常见禁忌物组合
+-- =============================================
+INSERT INTO waste_incompatibility (waste_code_a, waste_name_a, waste_category_a, waste_code_b, waste_name_b, waste_category_b, incompatibility_level, reaction_type, hazard_description, emergency_measure, separation_requirement, status) VALUES
+(NULL, '废酸类', 'HW34', NULL, '废碱类', 'HW35', 3, '中和反应/剧烈放热/喷溅', '废酸与废碱混合发生剧烈中和反应，大量放热可能导致容器破裂、液体喷溅，产生高温腐蚀性气雾，对人员造成严重灼伤', '若已混合立即用大量清水稀释，人员撤离至上风向，佩戴防酸防碱防护装备，收集废液并报告EHS', '酸类与碱类必须分区存放，物理距离不少于5米，中间设置防泄漏隔墙，严禁同车运输', 1),
+(NULL, '氧化性危废', 'HW03,HW49', NULL, '可燃性/还原性危废', 'HW06,HW08,HW12', 3, '氧化还原反应/剧烈放热/爆炸', '强氧化剂与可燃物/还原剂混合可引发剧烈氧化还原反应，瞬间释放大量热量，可能导致爆炸、起火和有毒气体释放', '立即隔离泄漏物，严禁用水直接冲击，使用干粉灭火器或沙土覆盖，通知消防部门', '氧化剂单独存放于阴凉通风处，远离有机物、可燃物、还原剂，间隔不少于10米', 1),
+(NULL, '氰化物类', 'HW33', NULL, '废酸类', 'HW34', 3, '化学反应/产生剧毒氰化氢气体', '氰化物遇酸迅速反应产生剧毒氰化氢(HCN)气体，微量吸入即可致死，无色无味难以察觉', '立即撤离现场，开启防爆排风，佩戴正压式呼吸器，使用次氯酸钠等破氰剂处理，严禁人员在无防护情况下接近', '氰化物必须专用仓库、双人双锁管理，绝对禁止与酸类及酸性物质同区域存放，隔离距离≥20米', 1),
+(NULL, '硫化物类', 'HW33,HW49', NULL, '废酸类', 'HW34', 2, '化学反应/产生剧毒硫化氢气体', '硫化物遇酸产生硫化氢(H2S)剧毒气体，高浓度可导致电击样死亡，低浓度有臭鸡蛋气味', '立即疏散人员至上风向，佩戴防毒面具，使用氧化剂(如双氧水)中和处理泄漏物', '硫化物与酸类隔离存放，保持通风，设置硫化氢气体检测报警器', 1),
+(NULL, '废卤化有机溶剂', 'HW41', NULL, '碱金属/活泼金属', 'HW49', 3, '放热反应/可能起火', '卤代烃(如二氯甲烷、氯仿)与活泼金属(钠、钾)接触发生剧烈放热反应，可能引燃有机溶剂', '使用干粉灭火器灭火，禁止用水和泡沫，避免卤代烃与金属直接接触', '卤代溶剂与活泼金属分区存放，使用惰性气体保护存放金属', 1),
+(NULL, '废酸类', 'HW34', NULL, '活泼金属/金属粉末', 'HW49', 2, '置换反应/产生易燃易爆氢气', '酸与活泼金属反应产生氢气，氢气在空气中爆炸极限为4%-75%，遇明火或静电即可爆炸', '立即停止接触，使用大量清水稀释冲洗，通风排除氢气，严禁明火和开关电器', '酸类与金属粉末、活泼金属隔离存放，存放区严禁烟火', 1),
+(NULL, '废有机溶剂', 'HW06,HW42', NULL, '强氧化性危废', 'HW03,HW49', 3, '放热/起火/爆炸', '有机溶剂(醇、酮、酯、苯系物等)与强氧化剂(过氧化物、硝酸盐、氯酸盐)混合，常温下即可反应引发燃烧甚至爆炸', '使用泡沫或干粉灭火器灭火，不得使用水，疏散周围人员', '有机溶剂仓库与氧化剂仓库独立设置，间距≥15米，均需安装防爆电气设备', 1),
+(NULL, '含汞废催化剂', 'HW29', NULL, '氨水/碱性物质', 'HW35,HW49', 2, '产生雷汞/爆炸性化合物', '汞盐与氨水反应生成雷汞等爆炸性化合物，轻微震动或摩擦即可引爆', '严禁混合，如已发生反应立即撤离并联系专业机构处置，严禁自行处理', '汞类废物单独存放，远离氨类和碱性物质', 1),
+(NULL, '污泥类', 'HW18,HW49', NULL, '强氧化剂', 'HW03,HW49', 2, '放热/自燃风险', '含有机物的污泥与强氧化剂混合可发生放热反应，积热不散可能引发自燃', '隔离混合区域，使用沙土覆盖，观察温度变化，必要时用水降温', '污泥与氧化剂分别存放，污泥堆放区应有散热措施和温度监测', 1),
+(NULL, '废乳化液/切削液', 'HW09', NULL, '废酸', 'HW34', 2, '破乳/大量放热/产生有害气体', '乳化液遇酸破乳分层并释放热量，可能产生硫化氢、磷化氢等有害气体', '停止混合，收集分层废液，使用破乳剂处理，通风排毒', '乳化液与酸类分区存放，防止管道交叉泄漏', 1),
+(NULL, '含铬废液(六价)', 'HW21', NULL, '还原性物质/有机物', 'HW06,HW08,HW12', 2, '氧化还原反应/放热/产生有毒铬雾', '六价铬与还原剂反应被还原为三价铬，同时释放热量和铬酸雾，对皮肤和呼吸道有强刺激和致癌性', '佩戴防毒面具和防酸手套，使用还原剂(亚硫酸钠)处理，收集废液', '铬酸废液单独存放，远离有机物、硫化物、亚硫酸盐等还原性物质', 1),
+(NULL, '废油漆/涂料渣', 'HW12', NULL, '固化剂/氧化剂', 'HW49', 1, '聚合反应/发热/结块', '含不饱和键的油漆树脂与固化剂、过氧化物混合可发生聚合反应，发热并固化结块', '已混合的立即分开存放，不得密封，让热量散出', '油漆、树脂与固化剂分开存放，阴凉处避免高温暴晒', 1);
