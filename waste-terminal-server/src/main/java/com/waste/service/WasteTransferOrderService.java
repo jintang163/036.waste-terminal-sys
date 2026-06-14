@@ -3,6 +3,7 @@ package com.waste.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.waste.common.PageQuery;
 import com.waste.dto.TransferOrderDTO;
+import com.waste.entity.TransferOrderTimeline;
 import com.waste.entity.WasteTransferOrder;
 import com.waste.vo.TransferOrderVO;
 
@@ -55,4 +56,18 @@ public interface WasteTransferOrderService {
     List<WasteTransferOrder> queryList(WasteTransferOrder transferOrder, Long enterpriseId);
 
     IPage<WasteTransferOrder> queryPage(PageQuery pageQuery, WasteTransferOrder transferOrder, Long enterpriseId);
+
+    void startTransport(Long id, String operatorName, Long operatorId);
+
+    void arrive(Long id, String operatorName, Long operatorId, String location);
+
+    void signOrder(Long id, String operatorName, Long operatorId, String signPhoto);
+
+    void completeOrder(Long id, String operatorName, Long operatorId, String receiptPhoto);
+
+    void cancelOrder(Long id, String operatorName, Long operatorId, String reason);
+
+    List<TransferOrderTimeline> getTimeline(Long id);
+
+    TransferOrderVO getDetailWithTimeline(Long id);
 }

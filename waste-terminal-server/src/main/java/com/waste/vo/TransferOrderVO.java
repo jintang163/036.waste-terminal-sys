@@ -1,5 +1,6 @@
 package com.waste.vo;
 
+import com.waste.entity.TransferOrderTimeline;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -81,7 +82,13 @@ public class TransferOrderVO {
 
     private String signPhoto;
 
+    private Integer signStatus;
+
+    private LocalDateTime signTime;
+
     private String receiptPhoto;
+
+    private LocalDateTime completeTime;
 
     private String remark;
 
@@ -94,6 +101,8 @@ public class TransferOrderVO {
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
+
+    private List<TransferOrderTimeline> timelineList;
 
     @Data
     public static class WasteItemVO {

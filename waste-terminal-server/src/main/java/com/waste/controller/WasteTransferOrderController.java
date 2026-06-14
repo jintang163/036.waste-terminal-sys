@@ -7,6 +7,7 @@ import com.waste.common.PageQuery;
 import com.waste.common.PageResult;
 import com.waste.common.Result;
 import com.waste.dto.TransferOrderDTO;
+import com.waste.entity.TransferOrderTimeline;
 import com.waste.entity.WasteTransferOrder;
 import com.waste.mapper.WasteTransferOrderMapper;
 import com.waste.mq.WasteMqProducer;
@@ -252,5 +253,72 @@ public class WasteTransferOrderController {
         }
         boolean exist = wasteTransferOrderService.checkByOfflineId(offlineId, enterpriseId);
         return Result.success(exist);
+    }
+
+    @PutMapping("/start-transport/{id}")
+    @RequiresLogin
+    public Result<Void> startTransport(@PathVariable Long id) {
+        wasteTransferOrderService.startTransport(id,
+                UserContext.getCurrentRealName(),
+                UserContext.getCurrentUserId());
+        return Result.success();
+    }
+
+    @PutMapping("/arrive/{id}")
+    @RequiresLogin
+    public Result<Void> arrive(@PathVariable Long id,
+                               @RequestParam(required = false) String location) {
+        wasteTransferOrderService.arrive(id,
+                UserContext.getCurrentRealName(),
+                UserContext.getCurrentUserId(),
+                location);
+        return Result.success();
+    }
+
+    @PutMapping("/sign-order/{id}")
+    @RequiresLogin
+    public Result<Void> signOrder(@PathVariable Long id,
+                                  @RequestParam(required = false) String signPhoto) {
+        wasteTransferOrderService.signOrder(id,
+                UserContext.getCurrentRealName(),
+                UserContext.getCurrentUserId(),
+                signPhoto);
+        return Result.success();
+    }
+
+    @PutMapping("/complete-order/{id}")
+    @RequiresLogin
+    public Result<Void> completeOrder(@PathVariable Long id,
+                                      @RequestParam(required = false) String receiptPhoto) {
+        wasteTransferOrderService.completeOrder(id,
+                UserContext.getCurrentRealName(),
+                UserContext.getCurrentUserId(),
+                receiptPhoto);
+        return Result.success();
+    }
+
+    @PutMapping("/cancel-order/{id}")
+    @RequiresLogin
+    public Result<Void> cancelOrder(@PathVariable Long id,
+                                    @RequestParam(required = false) String reason) {
+        wasteTransferOrderService.cancelOrder(id,
+                UserContext.getCurrentRealName(),
+                UserContext.getCurrentUserId(),
+                reason);
+        return Result.success();
+    }
+
+    @GetMapping("/timeline/{id}")
+    @RequiresLogin
+    public Result<List<TransferOrderTimeline>> getTimeline(@PathVariable Long id) {
+        List<TransferOrderTimeline> timeline = wasteTransferOrderService.getTimeline(id);
+        return Result.success(timeline);
+    }
+
+    @GetMapping("/detail-full/{id}")
+    @RequiresLogin
+    public Result<TransferOrderVO> getDetailFull(@PathVariable Long id) {
+        TransferOrderVO vo = wasteTransferOrderService.getDetailWithTimeline(id);
+        return Result.success(vo);
     }
 }

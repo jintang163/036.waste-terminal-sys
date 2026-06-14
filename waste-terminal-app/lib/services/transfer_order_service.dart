@@ -242,6 +242,160 @@ class TransferOrderService {
     }
   }
 
+  Future<bool> startTransport(int orderId) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      await _apiService.put('/transfer-order/start-transport/$orderId');
+      _logger.i('开始运输成功, orderId: $orderId');
+      return true;
+    } catch (e) {
+      _logger.e('开始运输失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> arrive(int orderId, {String? location}) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      final params = <String, dynamic>{};
+      if (location != null && location.isNotEmpty) {
+        params['location'] = location;
+      }
+      await _apiService.put(
+        '/transfer-order/arrive/$orderId',
+        queryParameters: params,
+      );
+      _logger.i('到达确认成功, orderId: $orderId');
+      return true;
+    } catch (e) {
+      _logger.e('到达确认失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> signOrder(int orderId, {String? signPhoto}) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      final params = <String, dynamic>{};
+      if (signPhoto != null && signPhoto.isNotEmpty) {
+        params['signPhoto'] = signPhoto;
+      }
+      await _apiService.put(
+        '/transfer-order/sign-order/$orderId',
+        queryParameters: params,
+      );
+      _logger.i('签收成功, orderId: $orderId');
+      return true;
+    } catch (e) {
+      _logger.e('签收失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> completeOrder(int orderId, {String? receiptPhoto}) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      final params = <String, dynamic>{};
+      if (receiptPhoto != null && receiptPhoto.isNotEmpty) {
+        params['receiptPhoto'] = receiptPhoto;
+      }
+      await _apiService.put(
+        '/transfer-order/complete-order/$orderId',
+        queryParameters: params,
+      );
+      _logger.i('完成联单成功, orderId: $orderId');
+      return true;
+    } catch (e) {
+      _logger.e('完成联单失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> cancelOrder(int orderId, {String? reason}) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      final params = <String, dynamic>{};
+      if (reason != null && reason.isNotEmpty) {
+        params['reason'] = reason;
+      }
+      await _apiService.put(
+        '/transfer-order/cancel-order/$orderId',
+        queryParameters: params,
+      );
+      _logger.i('取消联单成功, orderId: $orderId');
+      return true;
+    } catch (e) {
+      _logger.e('取消联单失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>?> getTimeline(int orderId) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        return null;
+      }
+      final response = await _apiService.get('/transfer-order/timeline/$orderId');
+      if (response.data['data'] != null) {
+        return response.data['data'] as List<dynamic>;
+      }
+      return null;
+    } catch (e) {
+      _logger.e('获取联单轨迹失败: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getDetailFull(int orderId) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        return null;
+      }
+      final response = await _apiService.get('/transfer-order/detail-full/$orderId');
+      if (response.data['data'] != null) {
+        return Map<String, dynamic>.from(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      _logger.e('获取联单完整详情失败: $e');
+      return null;
+    }
+  }
+
+  Future<String?> getQrCode(int orderId) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        return null;
+      }
+      final response = await _apiService.get('/transfer-order/qrcode/$orderId');
+      if (response.data['data'] != null) {
+        return response.data['data'] as String;
+      }
+      return null;
+    } catch (e) {
+      _logger.e('获取联单二维码失败: $e');
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> getStatistics({
     String? startTime,
     String? endTime,

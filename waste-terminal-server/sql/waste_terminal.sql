@@ -720,3 +720,36 @@ INSERT INTO waste_incompatibility (waste_code_a, waste_name_a, waste_category_a,
 ('HW09', '废乳化液/切削液', 'HW09', 'HW34', '废酸', 'HW34', 2, '破乳/大量放热/产生有害气体', '乳化液遇酸破乳分层并释放热量，可能产生硫化氢、磷化氢等有害气体', '停止混合，收集分层废液，使用破乳剂处理，通风排毒', '乳化液与酸类分区存放，防止管道交叉泄漏', 1),
 ('HW21', '含铬废液(六价)', 'HW21', 'HW06', '还原性物质/有机物', 'HW06,HW08,HW12', 2, '氧化还原反应/放热/产生有毒铬雾', '六价铬与还原剂反应被还原为三价铬，同时释放热量和铬酸雾，对皮肤和呼吸道有强刺激和致癌性', '佩戴防毒面具和防酸手套，使用还原剂(亚硫酸钠)处理，收集废液', '铬酸废液单独存放，远离有机物、硫化物、亚硫酸盐等还原性物质', 1),
 ('HW12', '废油漆/涂料渣', 'HW12', 'HW49', '固化剂/氧化剂', 'HW49', 1, '聚合反应/发热/结块', '含不饱和键的油漆树脂与固化剂、过氧化物混合可发生聚合反应，发热并固化结块', '已混合的立即分开存放，不得密封，让热量散出', '油漆、树脂与固化剂分开存放，阴凉处避免高温暴晒', 1);
+
+-- =============================================
+-- 19. 联单轨迹表
+-- =============================================
+DROP TABLE IF EXISTS transfer_order_timeline;
+CREATE TABLE transfer_order_timeline (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '轨迹ID',
+    order_id BIGINT COMMENT '联单ID',
+    order_no VARCHAR(50) COMMENT '联单编号',
+    national_order_no VARCHAR(50) COMMENT '国家平台联单编号',
+    event_type INT COMMENT '事件类型: 1-创建 2-提交 3-上报成功 4-上报失败 5-开始运输 6-到达 7-签收 8-上传回执 9-完成 10-取消 11-状态同步 12-Webhook通知',
+    event_name VARCHAR(50) COMMENT '事件名称',
+    from_status INT COMMENT '原状态',
+    from_status_name VARCHAR(50) COMMENT '原状态名称',
+    to_status INT COMMENT '目标状态',
+    to_status_name VARCHAR(50) COMMENT '目标状态名称',
+    operator_name VARCHAR(50) COMMENT '操作人姓名',
+    operator_id BIGINT COMMENT '操作人ID',
+    event_time DATETIME COMMENT '事件发生时间',
+    location VARCHAR(200) COMMENT '事件发生地点',
+    remark VARCHAR(500) COMMENT '备注说明',
+    extra_data TEXT COMMENT '扩展数据(JSON)',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    KEY idx_order_id (order_id),
+    KEY idx_order_no (order_no),
+    KEY idx_national_order_no (national_order_no),
+    KEY idx_event_time (event_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联单轨迹表';

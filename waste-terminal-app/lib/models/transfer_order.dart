@@ -1,3 +1,135 @@
+class TransferOrderTimeline {
+  final int? id;
+  final int? orderId;
+  final String? orderNo;
+  final String? nationalOrderNo;
+  final int? eventType;
+  final String? eventName;
+  final int? fromStatus;
+  final String? fromStatusName;
+  final int? toStatus;
+  final String? toStatusName;
+  final String? operatorName;
+  final int? operatorId;
+  final DateTime? eventTime;
+  final String? location;
+  final String? remark;
+  final String? extraData;
+  final int? enterpriseId;
+  final DateTime? createTime;
+  final DateTime? updateTime;
+
+  TransferOrderTimeline({
+    this.id,
+    this.orderId,
+    this.orderNo,
+    this.nationalOrderNo,
+    this.eventType,
+    this.eventName,
+    this.fromStatus,
+    this.fromStatusName,
+    this.toStatus,
+    this.toStatusName,
+    this.operatorName,
+    this.operatorId,
+    this.eventTime,
+    this.location,
+    this.remark,
+    this.extraData,
+    this.enterpriseId,
+    this.createTime,
+    this.updateTime,
+  });
+
+  factory TransferOrderTimeline.fromJson(Map<String, dynamic> json) {
+    return TransferOrderTimeline(
+      id: json['id'] as int?,
+      orderId: json['orderId'] as int?,
+      orderNo: json['orderNo'] as String?,
+      nationalOrderNo: json['nationalOrderNo'] as String?,
+      eventType: json['eventType'] as int?,
+      eventName: json['eventName'] as String?,
+      fromStatus: json['fromStatus'] as int?,
+      fromStatusName: json['fromStatusName'] as String?,
+      toStatus: json['toStatus'] as int?,
+      toStatusName: json['toStatusName'] as String?,
+      operatorName: json['operatorName'] as String?,
+      operatorId: json['operatorId'] as int?,
+      eventTime: json['eventTime'] != null
+          ? DateTime.tryParse(json['eventTime'] as String)
+          : null,
+      location: json['location'] as String?,
+      remark: json['remark'] as String?,
+      extraData: json['extraData'] as String?,
+      enterpriseId: json['enterpriseId'] as int?,
+      createTime: json['createTime'] != null
+          ? DateTime.tryParse(json['createTime'] as String)
+          : null,
+      updateTime: json['updateTime'] != null
+          ? DateTime.tryParse(json['updateTime'] as String)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'orderId': orderId,
+      'orderNo': orderNo,
+      'nationalOrderNo': nationalOrderNo,
+      'eventType': eventType,
+      'eventName': eventName,
+      'fromStatus': fromStatus,
+      'fromStatusName': fromStatusName,
+      'toStatus': toStatus,
+      'toStatusName': toStatusName,
+      'operatorName': operatorName,
+      'operatorId': operatorId,
+      'eventTime': eventTime?.toIso8601String(),
+      'location': location,
+      'remark': remark,
+      'extraData': extraData,
+      'enterpriseId': enterpriseId,
+      'createTime': createTime?.toIso8601String(),
+      'updateTime': updateTime?.toIso8601String(),
+    };
+  }
+}
+
+class TransferOrderStatus {
+  static const int DRAFT = 0;
+  static const int PENDING_REPORT = 1;
+  static const int PENDING_TRANSPORT = 2;
+  static const int IN_TRANSIT = 3;
+  static const int ARRIVED = 4;
+  static const int SIGNED = 5;
+  static const int COMPLETED = 6;
+  static const int CANCELLED = -1;
+
+  static String getStatusName(int? status) {
+    switch (status) {
+      case DRAFT:
+        return '待提交';
+      case PENDING_REPORT:
+        return '待上报';
+      case PENDING_TRANSPORT:
+        return '待运输';
+      case IN_TRANSIT:
+        return '运输中';
+      case ARRIVED:
+        return '已到达';
+      case SIGNED:
+        return '已签收';
+      case COMPLETED:
+        return '已完成';
+      case CANCELLED:
+        return '已取消';
+      default:
+        return '未知';
+    }
+  }
+}
+
 class TransferOrderItem {
   final int? id;
   final int? orderId;
@@ -100,7 +232,10 @@ class TransferOrder {
   final DateTime? reportTime;
   final String? qrCode;
   final String? signPhoto;
+  final int? signStatus;
+  final DateTime? signTime;
   final String? receiptPhoto;
+  final DateTime? completeTime;
   final String? remark;
   final String? offlineId;
   final int? operatorId;
@@ -109,6 +244,7 @@ class TransferOrder {
   final DateTime? createTime;
   final DateTime? updateTime;
   final int? deleted;
+  final List<TransferOrderTimeline>? timelineList;
 
   TransferOrder({
     this.id,
@@ -144,7 +280,10 @@ class TransferOrder {
     this.reportTime,
     this.qrCode,
     this.signPhoto,
+    this.signStatus,
+    this.signTime,
     this.receiptPhoto,
+    this.completeTime,
     this.remark,
     this.offlineId,
     this.operatorId,
@@ -153,10 +292,12 @@ class TransferOrder {
     this.createTime,
     this.updateTime,
     this.deleted,
+    this.timelineList,
   });
 
   factory TransferOrder.fromJson(Map<String, dynamic> json) {
     final itemsJson = json['items'] as List<dynamic>?;
+    final timelineJson = json['timelineList'] as List<dynamic>?;
     return TransferOrder(
       id: json['id'] as int?,
       orderNo: json['orderNo'] as String?,
@@ -201,7 +342,14 @@ class TransferOrder {
           : null,
       qrCode: json['qrCode'] as String?,
       signPhoto: json['signPhoto'] as String?,
+      signStatus: json['signStatus'] as int?,
+      signTime: json['signTime'] != null
+          ? DateTime.tryParse(json['signTime'] as String)
+          : null,
       receiptPhoto: json['receiptPhoto'] as String?,
+      completeTime: json['completeTime'] != null
+          ? DateTime.tryParse(json['completeTime'] as String)
+          : null,
       remark: json['remark'] as String?,
       offlineId: json['offlineId'] as String?,
       operatorId: json['operatorId'] as int?,
@@ -214,6 +362,9 @@ class TransferOrder {
           ? DateTime.tryParse(json['updateTime'] as String)
           : null,
       deleted: json['deleted'] as int?,
+      timelineList: timelineJson
+          ?.map((e) => TransferOrderTimeline.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 
@@ -252,7 +403,10 @@ class TransferOrder {
       'reportTime': reportTime?.toIso8601String(),
       'qrCode': qrCode,
       'signPhoto': signPhoto,
+      'signStatus': signStatus,
+      'signTime': signTime?.toIso8601String(),
       'receiptPhoto': receiptPhoto,
+      'completeTime': completeTime?.toIso8601String(),
       'remark': remark,
       'offlineId': offlineId,
       'operatorId': operatorId,
@@ -261,6 +415,7 @@ class TransferOrder {
       'createTime': createTime?.toIso8601String(),
       'updateTime': updateTime?.toIso8601String(),
       'deleted': deleted,
+      'timelineList': timelineList?.map((e) => e.toJson()).toList(),
     };
   }
 
@@ -298,7 +453,10 @@ class TransferOrder {
     DateTime? reportTime,
     String? qrCode,
     String? signPhoto,
+    int? signStatus,
+    DateTime? signTime,
     String? receiptPhoto,
+    DateTime? completeTime,
     String? remark,
     String? offlineId,
     int? operatorId,
@@ -307,6 +465,7 @@ class TransferOrder {
     DateTime? createTime,
     DateTime? updateTime,
     int? deleted,
+    List<TransferOrderTimeline>? timelineList,
   }) {
     return TransferOrder(
       id: id ?? this.id,
@@ -342,7 +501,10 @@ class TransferOrder {
       reportTime: reportTime ?? this.reportTime,
       qrCode: qrCode ?? this.qrCode,
       signPhoto: signPhoto ?? this.signPhoto,
+      signStatus: signStatus ?? this.signStatus,
+      signTime: signTime ?? this.signTime,
       receiptPhoto: receiptPhoto ?? this.receiptPhoto,
+      completeTime: completeTime ?? this.completeTime,
       remark: remark ?? this.remark,
       offlineId: offlineId ?? this.offlineId,
       operatorId: operatorId ?? this.operatorId,
@@ -351,6 +513,7 @@ class TransferOrder {
       createTime: createTime ?? this.createTime,
       updateTime: updateTime ?? this.updateTime,
       deleted: deleted ?? this.deleted,
+      timelineList: timelineList ?? this.timelineList,
     );
   }
 }

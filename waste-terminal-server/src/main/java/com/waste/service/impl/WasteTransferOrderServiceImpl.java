@@ -10,12 +10,17 @@ import com.waste.common.ResultCode;
 import com.waste.common.exception.BusinessException;
 import com.waste.dto.TransferOrderDTO;
 import com.waste.entity.EnterpriseInfo;
+import com.waste.entity.TransferOrderTimeline;
 import com.waste.entity.WasteTransferOrder;
+import com.waste.enums.TransferOrderEventTypeEnum;
+import com.waste.enums.TransferOrderStatusEnum;
 import com.waste.mapper.EnterpriseInfoMapper;
 import com.waste.mapper.WasteTransferOrderMapper;
-import com.waste.service.NationalPlatformService;
-import com.waste.service.WasteTransferOrderService;
 import com.waste.mq.WasteMqProducer;
+import com.waste.service.NationalPlatformService;
+import com.waste.service.TransferOrderTimelineService;
+import com.waste.service.WasteTransferOrderService;
+import com.waste.statemachine.TransferOrderStateMachine;
 import com.waste.utils.IdGeneratorUtils;
 import com.waste.utils.JsonUtils;
 import com.waste.utils.QrCodeUtils;
@@ -47,6 +52,12 @@ public class WasteTransferOrderServiceImpl implements WasteTransferOrderService 
 
     @Autowired
     private WasteMqProducer wasteMqProducer;
+
+    @Autowired
+    private TransferOrderStateMachine stateMachine;
+
+    @Autowired
+    private TransferOrderTimelineService timelineService;
 
     @Override
     public IPage<WasteTransferOrder> page(PageQuery pageQuery, WasteTransferOrder transferOrder, Long enterpriseId) {
@@ -644,5 +655,85 @@ public class WasteTransferOrderServiceImpl implements WasteTransferOrderService 
 
     private String buildQrCodeContent(String orderNo) {
         return "waste-transfer:" + orderNo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void startTransport(Long id, String operatorName, Long operatorId) {
+        WasteTransferOrder order = getOrderById(id);
+        stateMachine.transition(order, TransferOrderEventTypeEnum.START_TRANSPORT, operatorName, operatorId);
+        wasteMqProducer.sendTransferOrderSync(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void arrive(Long id, String operatorName, Long operatorId, String location) {
+        WasteTransferOrder order = getOrderById(id);
+        stateMachine.transition(order, TransferOrderEventTypeEnum.ARRIVE, operatorName, operatorId);
+        if (StrUtil.isNotBlank(location)) {
+            timelineService.addTimeline(
+                    order.getId(),
+                    order.getOrderNo(),
+                    order.getNationalOrderNo(),
+                    null,
+                    null,
+                    null,
+                    operatorName,
+                    operatorId,
+                    location,
+                    "到达位置: " + location,
+                    null,
+                    order.getEnterpriseId()
+            );
+        }
+        wasteMqProducer.sendTransferOrderSync(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void signOrder(Long id, String operatorName, Long operatorId, String signPhoto) {
+        WasteTransferOrder order = getOrderById(id);
+        if (StrUtil.isNotBlank(signPhoto)) {
+            order.setSignPhoto(signPhoto);
+            wasteTransferOrderMapper.updateById(order);
+        }
+        stateMachine.transition(order, TransferOrderEventTypeEnum.SIGN, operatorName, operatorId);
+        wasteMqProducer.sendTransferOrderReport(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void completeOrder(Long id, String operatorName, Long operatorId, String receiptPhoto) {
+        WasteTransferOrder order = getOrderById(id);
+        if (StrUtil.isNotBlank(receiptPhoto)) {
+            order.setReceiptPhoto(receiptPhoto);
+            wasteTransferOrderMapper.updateById(order);
+        }
+        stateMachine.transition(order, TransferOrderEventTypeEnum.COMPLETE, operatorName, operatorId);
+        wasteMqProducer.sendTransferOrderReport(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelOrder(Long id, String operatorName, Long operatorId, String reason) {
+        WasteTransferOrder order = getOrderById(id);
+        if (StrUtil.isNotBlank(reason)) {
+            order.setRemark(reason);
+            wasteTransferOrderMapper.updateById(order);
+        }
+        stateMachine.transition(order, TransferOrderEventTypeEnum.CANCEL, operatorName, operatorId);
+    }
+
+    @Override
+    public List<TransferOrderTimeline> getTimeline(Long id) {
+        return timelineService.getTimelineByOrderId(id);
+    }
+
+    @Override
+    public TransferOrderVO getDetailWithTimeline(Long id) {
+        TransferOrderVO vo = getDetailById(id);
+        List<TransferOrderTimeline> timelineList = timelineService.getTimelineByOrderId(id);
+        vo.setTimelineList(timelineList);
+        return vo;
     }
 }
