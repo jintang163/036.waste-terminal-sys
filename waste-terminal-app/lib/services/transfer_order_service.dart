@@ -47,11 +47,19 @@ class TransferOrderService {
   Future<void> _syncSingleOrder(Map<String, dynamic> order) async {
     try {
       final response = await _apiService.post(
-        '/transfer-order/add',
+        '/transfer-order/create',
         data: order,
       );
 
-      String? orderId = response.data['data']?['orderId'];
+      String? orderId;
+      if (response.data['data'] != null) {
+        if (response.data['data'] is Map) {
+          orderId = response.data['data']['orderId']?.toString() ??
+              response.data['data']['id']?.toString();
+        } else {
+          orderId = response.data['data']?.toString();
+        }
+      }
       await _transferOrderDb.updateSyncStatus(
         order['offline_id'],
         1,
@@ -440,6 +448,23 @@ class TransferOrderService {
         'pending_count': 0,
         'completed_count': 0,
       };
+    }
+  }
+
+  Future<bool> syncStatus(int orderId) async {
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        throw Exception('无网络连接，请联网后重试');
+      }
+      final response = await _apiService.post('/transfer-order/sync-status/$orderId');
+      if (response.data['data'] != null) {
+        return response.data['data'] as bool;
+      }
+      return false;
+    } catch (e) {
+      _logger.e('同步联单状态失败: $e');
+      rethrow;
     }
   }
 }

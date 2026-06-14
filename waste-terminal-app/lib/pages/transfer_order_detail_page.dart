@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bluetooth_print/bluetooth_print_model.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,6 +13,9 @@ import 'package:photo_view/photo_view.dart';
 import '../models/transfer_order.dart';
 import '../services/transfer_order_service.dart';
 import '../utils/date_util.dart';
+import '../utils/logger_util.dart';
+import '../utils/print_util.dart';
+import '../utils/sp_util.dart';
 import '../utils/toast_util.dart';
 
 class TransferOrderDetailPage extends StatefulWidget {
@@ -26,6 +31,8 @@ class TransferOrderDetailPage extends StatefulWidget {
 class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
   final TransferOrderService _orderService = TransferOrderService();
   final ImagePicker _imagePicker = ImagePicker();
+  final Connectivity _connectivity = Connectivity();
+  final PrintUtil _printUtil = PrintUtil();
 
   TransferOrder? _order;
   List<TransferOrderTimeline> _timelineList = [];
@@ -33,13 +40,107 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
   String? _qrCodeBase64;
   File? _signPhotoFile;
   File? _receiptPhotoFile;
-  String? _pendingSignPhotoPath;
-  String? _pendingReceiptPhotoPath;
+
+  String get _spSignKey => 'pending_sign_photo_${widget.orderId}';
+  String get _spReceiptKey => 'pending_receipt_photo_${widget.orderId}';
 
   @override
   void initState() {
     super.initState();
+    _loadPendingPhotosFromSp();
     _loadData();
+    _connectivity.onConnectivityChanged.listen(_onConnectivityChanged);
+    _printUtil.init();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  Future<void> _loadPendingPhotosFromSp() async {
+    final signPath = SpUtil.getString(_spSignKey);
+    final receiptPath = SpUtil.getString(_spReceiptKey);
+    if (signPath != null && signPath.isNotEmpty && File(signPath).existsSync()) {
+      _signPhotoFile = File(signPath);
+    }
+    if (receiptPath != null && receiptPath.isNotEmpty && File(receiptPath).existsSync()) {
+      _receiptPhotoFile = File(receiptPath);
+    }
+    if (mounted && (_signPhotoFile != null || _receiptPhotoFile != null)) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _savePendingPhotoToSp(PhotoType type, String path) async {
+    if (type == PhotoType.sign) {
+      await SpUtil.putString(_spSignKey, path);
+    } else {
+      await SpUtil.putString(_spReceiptKey, path);
+    }
+  }
+
+  Future<void> _clearPendingPhotoFromSp(PhotoType type) async {
+    if (type == PhotoType.sign) {
+      await SpUtil.remove(_spSignKey);
+    } else {
+      await SpUtil.remove(_spReceiptKey);
+    }
+  }
+
+  void _onConnectivityChanged(ConnectivityResult result) {
+    if (result != ConnectivityResult.none) {
+      LoggerUtil.i('网络已恢复，检查待同步照片');
+      _tryRetryPendingPhotos();
+    }
+  }
+
+  Future<void> _tryRetryPendingPhotos() async {
+    if (_order == null) return;
+
+    if (_signPhotoFile != null &&
+        (_order!.status == TransferOrderStatus.ARRIVED)) {
+      LoggerUtil.i('网络恢复，自动尝试提交签收照片');
+      try {
+        ToastUtil.showLoading('自动提交签收照片...');
+        final bytes = await _signPhotoFile!.readAsBytes();
+        final base64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        await _orderService.signOrder(widget.orderId, signPhoto: base64);
+        setState(() {
+          _signPhotoFile = null;
+        });
+        _clearPendingPhotoFromSp(PhotoType.sign);
+        ToastUtil.showSuccess('签收照片自动上传成功');
+        _loadData();
+      } catch (e) {
+        LoggerUtil.e('自动提交签收照片失败: $e');
+        ToastUtil.showError('自动提交失败，请手动重试');
+      } finally {
+        ToastUtil.dismissLoading();
+      }
+    }
+
+    if (_receiptPhotoFile != null &&
+        (_order!.status == TransferOrderStatus.SIGNED)) {
+      LoggerUtil.i('网络恢复，自动尝试提交回执照片');
+      try {
+        ToastUtil.showLoading('自动提交回执照片...');
+        final bytes = await _receiptPhotoFile!.readAsBytes();
+        final base64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        await _orderService.completeOrder(widget.orderId, receiptPhoto: base64);
+        setState(() {
+          _receiptPhotoFile = null;
+        });
+        _clearPendingPhotoFromSp(PhotoType.receipt);
+        ToastUtil.showSuccess('回执照片自动上传成功');
+        _loadData();
+      } catch (e) {
+        LoggerUtil.e('自动提交回执照片失败: $e');
+        ToastUtil.showError('自动提交失败，请手动重试');
+      } finally {
+        ToastUtil.dismissLoading();
+      }
+    }
   }
 
   Future<void> _loadData() async {
@@ -80,12 +181,34 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
     }
   }
 
+  Future<void> _handleSyncStatus() async {
+    try {
+      ToastUtil.showLoading('正在同步状态...');
+      final result = await _orderService.syncStatus(widget.orderId);
+      if (result) {
+        ToastUtil.showSuccess('状态同步成功');
+        await _loadData();
+      } else {
+        ToastUtil.showInfo('状态未变化');
+      }
+    } catch (e) {
+      ToastUtil.showError('同步失败: $e');
+    } finally {
+      ToastUtil.dismissLoading();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('联单详情'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: _handleSyncStatus,
+            tooltip: '同步状态',
+          ),
           IconButton(
             icon: const Icon(Icons.print),
             onPressed: _printOrder,
@@ -483,14 +606,34 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.photo_library, color: Colors.blue),
-                SizedBox(width: 8),
-                Text(
+                const Icon(Icons.photo_library, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Text(
                   '照片凭证',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
+                const Spacer(),
+                if (_signPhotoFile != null || _receiptPhotoFile != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cloud_off, size: 12, color: Colors.orange.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          '待同步',
+                          style: TextStyle(fontSize: 11, color: Colors.orange.shade700, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 16),
@@ -557,7 +700,27 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
             child: hasPhoto
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: _buildPhotoWidget(currentPhoto, pendingFile),
+                    child: Stack(
+                      children: [
+                        SizedBox.expand(child: _buildPhotoWidget(currentPhoto, pendingFile)),
+                        if (pendingFile != null)
+                          Positioned(
+                            right: 4,
+                            top: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.orange,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                '待上传',
+                                style: TextStyle(color: Colors.white, fontSize: 10),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   )
                 : Center(
                     child: Icon(
@@ -788,20 +951,21 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
       ));
     }
 
-    if (buttons.isEmpty) {
+    if (buttons.isEmpty && _signPhotoFile == null && _receiptPhotoFile == null) {
       return const SizedBox.shrink();
     }
 
     return Column(
       children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: buttons,
-        ),
-        if (_pendingSignPhotoPath != null || _pendingReceiptPhotoPath != null)
+        if (buttons.isNotEmpty)
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: buttons,
+          ),
+        if (_signPhotoFile != null || _receiptPhotoFile != null)
           Padding(
-            padding: const EdgeInsets.only(top: 16),
+            padding: EdgeInsets.only(top: buttons.isNotEmpty ? 16 : 0),
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -809,16 +973,53 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.orange.shade200),
               ),
-              child: Row(
+              child: Column(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade700),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '有离线暂存的照片待同步，请联网后重新进入页面提交',
-                      style: TextStyle(
-                          color: Colors.orange.shade800, fontSize: 13),
-                    ),
+                  Row(
+                    children: [
+                      Icon(Icons.cloud_off, color: Colors.orange.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '有 ${(_signPhotoFile != null ? 1 : 0) + (_receiptPhotoFile != null ? 1 : 0)} 张照片暂存本地，联网后将自动上传',
+                          style: TextStyle(
+                              color: Colors.orange.shade800, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            if (_signPhotoFile != null) {
+                              _signPhotoFile = null;
+                              _clearPendingPhotoFromSp(PhotoType.sign);
+                            }
+                            if (_receiptPhotoFile != null) {
+                              _receiptPhotoFile = null;
+                              _clearPendingPhotoFromSp(PhotoType.receipt);
+                            }
+                          });
+                          ToastUtil.showSuccess('已清除本地暂存照片');
+                        },
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        label: const Text('清除暂存'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: _tryRetryPendingPhotos,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('立即重试'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -905,6 +1106,7 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
 
       if (pickedFile != null) {
         final file = File(pickedFile.path);
+        await _savePendingPhotoToSp(type, file.path);
         setState(() {
           if (type == PhotoType.sign) {
             _signPhotoFile = file;
@@ -912,7 +1114,14 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
             _receiptPhotoFile = file;
           }
         });
-        ToastUtil.showSuccess('拍照成功，请点击对应按钮提交');
+        ToastUtil.showSuccess('拍照成功，已暂存本地');
+        final result = await _connectivity.checkConnectivity();
+        if (result != ConnectivityResult.none) {
+          LoggerUtil.i('当前有网络，立即尝试提交');
+          _tryRetryPendingPhotos();
+        } else {
+          ToastUtil.showInfo('当前无网络，照片已暂存，联网后自动上传');
+        }
       }
     } catch (e) {
       ToastUtil.showError('拍照失败: $e');
@@ -955,7 +1164,7 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
         contentPadding: const EdgeInsets.all(24),
         content: SizedBox(
           width: 300,
-          height: 320,
+          height: 360,
           child: Column(
             children: [
               const Text(
@@ -979,13 +1188,17 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
           ),
           TextButton(
             onPressed: () async {
-              if (_qrCodeBase64 != null) {
+              if (_order?.orderNo != null) {
                 await Clipboard.setData(
                     ClipboardData(text: _order!.orderNo ?? ''));
                 ToastUtil.showSuccess('联单号已复制');
               }
             },
             child: const Text('复制联单号'),
+          ),
+          TextButton(
+            onPressed: () => _printQrCodeOnly(),
+            child: const Text('打印二维码'),
           ),
         ],
       ),
@@ -1092,11 +1305,16 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
       ToastUtil.showSuccess('签收成功');
       setState(() {
         _signPhotoFile = null;
-        _pendingSignPhotoPath = null;
       });
+      _clearPendingPhotoFromSp(PhotoType.sign);
       await _loadData();
     } catch (e) {
-      ToastUtil.showError('签收失败: $e');
+      LoggerUtil.e('签收提交失败: $e');
+      if (_signPhotoFile != null) {
+        ToastUtil.showError('签收提交失败，照片已暂存本地，联网后将自动上传');
+      } else {
+        ToastUtil.showError('签收失败: $e');
+      }
     } finally {
       ToastUtil.dismissLoading();
     }
@@ -1120,11 +1338,12 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
       ToastUtil.showSuccess('回执上传成功');
       setState(() {
         _receiptPhotoFile = null;
-        _pendingReceiptPhotoPath = null;
       });
+      _clearPendingPhotoFromSp(PhotoType.receipt);
       await _loadData();
     } catch (e) {
-      ToastUtil.showError('上传失败: $e');
+      LoggerUtil.e('回执上传失败: $e');
+      ToastUtil.showError('上传失败，照片已暂存本地，联网后将自动上传');
     } finally {
       ToastUtil.dismissLoading();
     }
@@ -1169,6 +1388,7 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
         setState(() {
           _receiptPhotoFile = null;
         });
+        _clearPendingPhotoFromSp(PhotoType.receipt);
         await _loadData();
       } catch (e) {
         ToastUtil.showError('操作失败: $e');
@@ -1224,9 +1444,235 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
   }
 
   Future<void> _printOrder() async {
-    ToastUtil.showInfo('正在准备打印...');
-    await Future.delayed(const Duration(seconds: 1));
-    ToastUtil.showSuccess('打印功能开发中，请稍候');
+    if (_order == null) return;
+    _showPrintDialog();
+  }
+
+  void _showPrintDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _PrinterSelectDialog(
+        printUtil: _printUtil,
+        onPrint: () async {
+          if (_order == null) return;
+          final orderData = {
+            'orderNo': _order!.orderNo,
+            'nationalOrderNo': _order!.nationalOrderNo,
+            'generatorUnitName': _order!.generatorUnitName,
+            'receiverUnitName': _order!.receiverUnitName,
+            'transporterName': _order!.transporterName,
+            'vehicleNo': _order!.vehicleNo,
+            'driverName': _order!.driverName,
+            'wasteName': _order!.items?.isNotEmpty == true ? _order!.items!.first.wasteName : null,
+            'wasteCode': _order!.items?.isNotEmpty == true ? _order!.items!.first.wasteCode : null,
+            'totalWeight': _order!.totalWeight,
+            'totalContainers': _order!.totalContainers,
+            'status': _order!.status,
+            'createTime': DateUtil.formatDateTime(_order!.createTime),
+          };
+          final ok = await _printUtil.printTransferOrder(orderData);
+          if (ok) {
+            ToastUtil.showSuccess('打印指令已发送');
+          } else {
+            ToastUtil.showError('打印失败，请检查打印机连接');
+          }
+        },
+        onPrintQr: () async {
+          if (_order?.orderNo == null) return;
+          final ok = await _printUtil.printQrCode(_order!.orderNo!);
+          if (ok) {
+            ToastUtil.showSuccess('二维码打印指令已发送');
+          } else {
+            ToastUtil.showError('打印失败，请检查打印机连接');
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _printQrCodeOnly() async {
+    if (_order?.orderNo == null) return;
+    Navigator.pop(context);
+    final ok = await _printUtil.printQrCode(_order!.orderNo!);
+    if (ok) {
+      ToastUtil.showSuccess('二维码打印指令已发送');
+    } else {
+      ToastUtil.showError('打印失败，请检查打印机连接');
+    }
+  }
+}
+
+class _PrinterSelectDialog extends StatefulWidget {
+  final PrintUtil printUtil;
+  final Future<void> Function() onPrint;
+  final Future<void> Function() onPrintQr;
+
+  const _PrinterSelectDialog({
+    Key? key,
+    required this.printUtil,
+    required this.onPrint,
+    required this.onPrintQr,
+  }) : super(key: key);
+
+  @override
+  State<_PrinterSelectDialog> createState() => _PrinterSelectDialogState();
+}
+
+class _PrinterSelectDialogState extends State<_PrinterSelectDialog> {
+  List<BluetoothDevice> _devices = [];
+  BluetoothDevice? _selectedDevice;
+  bool _isScanning = false;
+  bool _isConnected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isConnected = widget.printUtil.isConnected;
+    _selectedDevice = widget.printUtil.selectedDevice;
+    _startScan();
+  }
+
+  Future<void> _startScan() async {
+    setState(() {
+      _isScanning = true;
+      _devices = [];
+    });
+    widget.printUtil.bluetoothPrint.startScan(timeout: const Duration(seconds: 4));
+    widget.printUtil.bluetoothPrint.scanResults.listen((devices) {
+      if (mounted) {
+        setState(() {
+          _devices = devices;
+        });
+      }
+    });
+    await Future.delayed(const Duration(seconds: 4));
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+      });
+    }
+  }
+
+  Future<void> _connect(BluetoothDevice device) async {
+    ToastUtil.showLoading('正在连接打印机...');
+    final ok = await widget.printUtil.connect(device);
+    ToastUtil.dismissLoading();
+    if (ok) {
+      setState(() {
+        _selectedDevice = device;
+        _isConnected = true;
+      });
+      ToastUtil.showSuccess('打印机连接成功');
+    } else {
+      ToastUtil.showError('打印机连接失败');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('选择打印机'),
+      content: SizedBox(
+        width: 320,
+        height: 360,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(_isScanning ? '扫描中...' : '可用设备 (${_devices.length})'),
+                TextButton.icon(
+                  onPressed: _startScan,
+                  icon: Icon(Icons.refresh, size: 18, color: _isScanning ? Colors.grey : Colors.blue),
+                  label: Text(_isScanning ? '扫描中' : '重新扫描'),
+                ),
+              ],
+            ),
+            if (_isConnected && _selectedDevice != null)
+              Container(
+                padding: const EdgeInsets.all(8),
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '已连接: ${_selectedDevice!.name ?? _selectedDevice!.address}',
+                        style: const TextStyle(color: Colors.green, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: _devices.isEmpty
+                  ? Center(
+                      child: _isScanning
+                          ? const CircularProgressIndicator()
+                          : const Text('未发现蓝牙设备，请确保打印机已开启'),
+                    )
+                  : ListView.builder(
+                      itemCount: _devices.length,
+                      itemBuilder: (context, index) {
+                        final device = _devices[index];
+                        final isSelected = _selectedDevice?.address == device.address;
+                        return ListTile(
+                          leading: const Icon(Icons.print),
+                          title: Text(device.name ?? '未知设备'),
+                          subtitle: Text(device.address ?? ''),
+                          trailing: isSelected && _isConnected
+                              ? const Icon(Icons.check_circle, color: Colors.green)
+                              : TextButton(
+                                  onPressed: () => _connect(device),
+                                  child: const Text('连接'),
+                                ),
+                          onTap: () {
+                            if (isSelected && _isConnected) {
+                              setState(() {});
+                            } else {
+                              _connect(device);
+                            }
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _isConnected
+              ? () async {
+                  Navigator.pop(context);
+                  await widget.onPrintQr();
+                }
+              : null,
+          icon: const Icon(Icons.qr_code, size: 18),
+          label: const Text('只打二维码'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _isConnected
+              ? () async {
+                  Navigator.pop(context);
+                  await widget.onPrint();
+                }
+              : null,
+          icon: const Icon(Icons.print, size: 18),
+          label: const Text('打印联单'),
+        ),
+      ],
+    );
   }
 }
 

@@ -44,4 +44,10 @@ public interface NationalPlatformService {
     List<PlatformReportDashboardDTO.RetryQueueItem> getRetryQueue(Long enterpriseId);
 
     PlatformReportDashboardDTO.ManualRetryResult manualRetry(Long recordId, boolean forceResend);
+
+    Map<String, Object> reportElectronicManifestWithResult(WasteTransferOrder order);
+
+    Map<String, Object> queryTransferOrderStatus(String nationalOrderNo, String orderNo);
+
+    Integer mapRemoteStatusToLocal(Integer remoteStatus);
 }

@@ -33,6 +33,9 @@ public class TransferOrderSyncTask {
     @Autowired
     private TransferOrderTimelineService timelineService;
 
+    @Autowired
+    private com.waste.service.WasteTransferOrderService wasteTransferOrderService;
+
     @Scheduled(cron = "0 */5 * * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void syncPendingReportOrders() {
@@ -129,16 +132,17 @@ public class TransferOrderSyncTask {
     }
 
     private void reportOrderToNationalPlatform(WasteTransferOrder order) {
-        log.info("开始上报联单到国家平台, orderNo={}", order.getOrderNo());
-        TransferOrderStatusEnum fromStatus = TransferOrderStatusEnum.getByCode(order.getStatus());
+        log.info("开始上报联单到国家平台(含真实联单编号解析), orderNo={}", order.getOrderNo());
 
         order.setReportStatus(2);
         order.setReportTime(LocalDateTime.now());
         transferOrderMapper.updateById(order);
 
-        boolean success = nationalPlatformService.reportTransferOrder(order);
-        if (success) {
-            String nationalOrderNo = order.getNationalOrderNo();
+        Map<String, Object> reportResult = nationalPlatformService.reportElectronicManifestWithResult(order);
+        if (reportResult != null && Boolean.TRUE.equals(reportResult.get("success"))) {
+            String nationalOrderNo = reportResult.get("nationalOrderNo") != null
+                    ? reportResult.get("nationalOrderNo").toString()
+                    : order.getNationalOrderNo();
             if (StrUtil.isBlank(nationalOrderNo)) {
                 nationalOrderNo = "GJ" + System.currentTimeMillis();
             }
@@ -153,12 +157,12 @@ public class TransferOrderSyncTask {
                     order.getOrderNo(),
                     order.getNationalOrderNo(),
                     TransferOrderEventTypeEnum.REPORT_SUCCESS,
-                    fromStatus,
+                    TransferOrderStatusEnum.PENDING_REPORT,
                     TransferOrderStatusEnum.PENDING_TRANSPORT,
                     "system",
                     null,
                     null,
-                    "联单成功上报国家平台",
+                    "定时任务上报成功，国家联单号: " + nationalOrderNo,
                     null,
                     order.getEnterpriseId()
             );
@@ -167,75 +171,39 @@ public class TransferOrderSyncTask {
             order.setReportStatus(3);
             transferOrderMapper.updateById(order);
 
+            String failReason = reportResult != null && reportResult.get("message") != null
+                    ? reportResult.get("message").toString()
+                    : "联单上报国家平台失败";
             timelineService.addTimeline(
                     order.getId(),
                     order.getOrderNo(),
                     order.getNationalOrderNo(),
                     TransferOrderEventTypeEnum.REPORT_FAIL,
-                    fromStatus,
+                    TransferOrderStatusEnum.PENDING_REPORT,
                     null,
                     "system",
                     null,
                     null,
-                    "联单上报国家平台失败",
+                    failReason,
                     null,
                     order.getEnterpriseId()
             );
-            log.warn("联单上报失败, orderNo={}", order.getOrderNo());
+            log.warn("联单上报失败, orderNo={}, reason={}", order.getOrderNo(), failReason);
         }
     }
 
     private void syncOrderStatusFromNationalPlatform(WasteTransferOrder order) {
-        log.debug("开始从国家平台同步联单状态, orderNo={}, nationalOrderNo={}",
+        log.debug("开始从国家平台同步联单状态(驱动状态机), orderNo={}, nationalOrderNo={}",
                 order.getOrderNo(), order.getNationalOrderNo());
 
-        Map<String, Object> statusInfo = nationalPlatformService.queryReportStatus(
-                "TRANSFER_ORDER", order.getNationalOrderNo());
-
-        if (statusInfo == null || !statusInfo.containsKey("status")) {
-            log.debug("未获取到联单状态信息, orderNo={}", order.getOrderNo());
-            return;
+        try {
+            boolean synced = wasteTransferOrderService.syncStatusFromRemote(order.getId());
+            if (synced) {
+                log.info("联单状态同步成功, orderNo={}", order.getOrderNo());
+            }
+        } catch (Exception e) {
+            log.error("同步联单状态异常, orderNo={}", order.getOrderNo(), e);
         }
-
-        Integer remoteStatus = (Integer) statusInfo.get("status");
-        if (remoteStatus == null || remoteStatus.equals(order.getStatus())) {
-            return;
-        }
-
-        TransferOrderStatusEnum currentStatus = TransferOrderStatusEnum.getByCode(order.getStatus());
-        TransferOrderStatusEnum targetStatus = TransferOrderStatusEnum.getByCode(remoteStatus);
-
-        if (targetStatus == null || currentStatus == null) {
-            return;
-        }
-
-        if (!currentStatus.canTransitionTo(targetStatus)) {
-            log.warn("联单状态流转不合法, orderNo={}, currentStatus={}, targetStatus={}",
-                    order.getOrderNo(), currentStatus.getName(), targetStatus.getName());
-            return;
-        }
-
-        order.setStatus(targetStatus.getCode());
-        updateOrderTimeByStatus(order, targetStatus, statusInfo);
-        transferOrderMapper.updateById(order);
-
-        timelineService.addTimeline(
-                order.getId(),
-                order.getOrderNo(),
-                order.getNationalOrderNo(),
-                TransferOrderEventTypeEnum.STATUS_SYNC,
-                currentStatus,
-                targetStatus,
-                "system",
-                null,
-                statusInfo.containsKey("location") ? (String) statusInfo.get("location") : null,
-                "定时同步: 状态从 " + currentStatus.getName() + " 变更为 " + targetStatus.getName(),
-                com.waste.utils.JsonUtils.toJson(statusInfo),
-                order.getEnterpriseId()
-        );
-
-        log.info("联单状态同步成功, orderNo={}, {} -> {}",
-                order.getOrderNo(), currentStatus.getName(), targetStatus.getName());
     }
 
     private void updateOrderTimeByStatus(WasteTransferOrder order, TransferOrderStatusEnum status, Map<String, Object> statusInfo) {

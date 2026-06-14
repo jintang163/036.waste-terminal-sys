@@ -983,4 +983,262 @@ public class NationalPlatformServiceImpl implements NationalPlatformService {
     private String generateRequestId() {
         return StrUtil.uuid().replace("-", "");
     }
+
+    @Override
+    public Map<String, Object> reportElectronicManifestWithResult(WasteTransferOrder order) {
+        log.info("开始上报电子联单到国家环保平台(含结果解析), orderNo={}", order.getOrderNo());
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", false);
+        try {
+            Map<String, Object> bizData = buildElectronicManifestData(order);
+            String requestJson = JsonUtils.toJson(buildRequestBody(bizData, generateRequestId(), LocalDateTime.now().format(FORMATTER)));
+            PlatformReportRecord reportRecord = createReportRecord(BIZ_TYPE_TRANSFER_ORDER,
+                    order.getId().toString(), order.getOrderNo(), "/manifest/report", requestJson, order.getEnterpriseId());
+
+            long startTime = System.currentTimeMillis();
+            Map<String, Object> respData = doReportWithResult("/manifest/report", bizData, order.getOrderNo());
+            long durationMs = System.currentTimeMillis() - startTime;
+
+            boolean success = respData != null && Boolean.TRUE.equals(respData.get("success"));
+            result.put("success", success);
+
+            if (success) {
+                String nationalBizNo = respData.get("platformBizNo") != null
+                        ? respData.get("platformBizNo").toString()
+                        : getNationalPlatformBizNo(order.getOrderNo());
+                result.put("nationalOrderNo", nationalBizNo);
+                if (respData.get("status") != null) {
+                    result.put("remoteStatus", respData.get("status"));
+                }
+                updateReportRecordSuccess(reportRecord, JsonUtils.toJson(respData), nationalBizNo, durationMs);
+            } else {
+                String failReason = respData != null && respData.get("message") != null
+                        ? respData.get("message").toString()
+                        : "电子联单上报失败";
+                result.put("message", failReason);
+                updateReportRecordFailed(reportRecord, failReason, durationMs);
+                scheduleRetry(reportRecord, order, BIZ_TYPE_TRANSFER_ORDER);
+            }
+        } catch (Exception e) {
+            log.error("电子联单上报异常, orderNo={}", order.getOrderNo(), e);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> queryTransferOrderStatus(String nationalOrderNo, String orderNo) {
+        log.info("查询联单状态, nationalOrderNo={}, orderNo={}", nationalOrderNo, orderNo);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", false);
+        try {
+            Map<String, Object> bizData = new LinkedHashMap<>();
+            bizData.put("nationalOrderNo", nationalOrderNo);
+            bizData.put("orderNo", orderNo);
+            Map<String, Object> respData = doReportWithResult("/manifest/queryStatus", bizData, orderNo);
+
+            if (respData != null && Boolean.TRUE.equals(respData.get("success"))) {
+                result.put("success", true);
+                if (respData.get("status") != null) {
+                    Integer remoteStatus = Integer.valueOf(respData.get("status").toString());
+                    result.put("remoteStatus", remoteStatus);
+                    result.put("localStatus", mapRemoteStatusToLocal(remoteStatus));
+                }
+                if (respData.get("signStatus") != null) {
+                    result.put("signStatus", respData.get("signStatus"));
+                }
+                if (respData.get("nationalOrderNo") != null) {
+                    result.put("nationalOrderNo", respData.get("nationalOrderNo"));
+                }
+            } else if (mockEnabled) {
+                result.put("success", true);
+                result.put("remoteStatus", 2);
+                result.put("localStatus", mapRemoteStatusToLocal(2));
+                result.put("nationalOrderNo", nationalOrderNo != null ? nationalOrderNo : "GJ" + System.currentTimeMillis());
+                log.info("【模拟对接】查询联单状态返回模拟数据, orderNo={}", orderNo);
+            }
+        } catch (Exception e) {
+            log.error("查询联单状态异常, nationalOrderNo={}, orderNo={}", nationalOrderNo, orderNo, e);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
+    public Integer mapRemoteStatusToLocal(Integer remoteStatus) {
+        if (remoteStatus == null) {
+            return null;
+        }
+        switch (remoteStatus) {
+            case 0:
+                return 0;
+            case 1:
+                return 1;
+            case 2:
+                return 2;
+            case 3:
+                return 3;
+            case 4:
+                return 4;
+            case 5:
+                return 5;
+            case 6:
+                return 6;
+            case 9:
+            case -1:
+                return -1;
+            default:
+                return remoteStatus;
+        }
+    }
+
+    private Map<String, Object> doReportWithResult(String apiPath, Map<String, Object> bizData, String bizNo) {
+        String requestId = generateRequestId();
+        String timestamp = LocalDateTime.now().format(FORMATTER);
+
+        Map<String, Object> requestBody = buildRequestBody(bizData, requestId, timestamp);
+        String requestJson = JsonUtils.toJson(requestBody);
+        String fullUrl = platformUrl + apiPath;
+
+        log.info("上报国家平台请求, url={}, bizNo={}", fullUrl, bizNo);
+
+        if (mockEnabled || StrUtil.isBlank(appId) || StrUtil.isBlank(appSecret)) {
+            log.info("使用模拟模式上报国家平台, bizNo={}", bizNo);
+            return mockPlatformCallWithResult(fullUrl, requestJson, bizNo);
+        }
+
+        return doRealHttpCallWithResult(fullUrl, requestJson, bizNo);
+    }
+
+    private Map<String, Object> doRealHttpCallWithResult(String url, String requestJson, String bizNo) {
+        int retryCount = 0;
+        Exception lastException = null;
+        Map<String, Object> lastResult = null;
+
+        while (retryCount < retryTimes) {
+            try {
+                log.info("调用国家环保平台接口(含结果), 第{}次尝试, bizNo={}", retryCount + 1, bizNo);
+
+                cn.hutool.http.HttpResponse response = cn.hutool.http.HttpRequest.post(url)
+                        .header("Content-Type", "application/json;charset=UTF-8")
+                        .header("Accept", "application/json")
+                        .header("appId", appId)
+                        .timeout(connectionTimeout)
+                        .setConnectionTimeout(connectionTimeout)
+                        .body(requestJson)
+                        .execute();
+
+                int httpStatus = response.getStatus();
+                String responseBody = response.body();
+
+                log.info("国家平台响应(含结果), httpStatus={}, bizNo={}, response={}", httpStatus, bizNo, responseBody);
+
+                if (httpStatus == HTTP_SUCCESS) {
+                    return parseResponseWithData(responseBody, bizNo);
+                } else {
+                    log.warn("国家平台返回非200状态码(含结果), httpStatus={}, bizNo={}", httpStatus, bizNo);
+                }
+            } catch (Exception e) {
+                lastException = e;
+                lastResult = new HashMap<>();
+                lastResult.put("success", false);
+                lastResult.put("message", e.getMessage());
+                log.error("调用国家平台接口失败(含结果), 第{}次尝试, bizNo={}", retryCount + 1, bizNo, e);
+            }
+
+            retryCount++;
+            if (retryCount < retryTimes) {
+                try {
+                    long delay = (long) Math.pow(2, retryCount) * 1000;
+                    log.info("等待{}ms后进行第{}次重试, bizNo={}", delay, retryCount + 1, bizNo);
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        log.error("调用国家平台接口最终失败(含结果), 已重试{}次, bizNo={}", retryTimes, bizNo, lastException);
+        if (lastResult != null) {
+            return lastResult;
+        }
+        Map<String, Object> fail = new HashMap<>();
+        fail.put("success", false);
+        fail.put("message", "调用国家平台接口失败");
+        return fail;
+    }
+
+    private Map<String, Object> parseResponseWithData(String responseBody, String bizNo) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> responseMap = JsonUtils.parseMap(responseBody);
+            String code = responseMap.get("code") != null ? responseMap.get("code").toString() : null;
+            String message = responseMap.get("message") != null ? responseMap.get("message").toString() : null;
+
+            if (RESP_CODE_SUCCESS.equals(code) || RESP_CODE_DUPLICATE.equals(code)) {
+                result.put("success", true);
+                result.put("message", message);
+                if (responseMap.get("data") != null) {
+                    Object dataObj = responseMap.get("data");
+                    if (dataObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> dataMap = (Map<String, Object>) dataObj;
+                        if (dataMap.get("platformBizNo") != null) {
+                            result.put("platformBizNo", dataMap.get("platformBizNo"));
+                        }
+                        if (dataMap.get("nationalOrderNo") != null) {
+                            result.put("nationalOrderNo", dataMap.get("nationalOrderNo"));
+                        }
+                        if (dataMap.get("status") != null) {
+                            result.put("status", dataMap.get("status"));
+                        }
+                        if (dataMap.get("signStatus") != null) {
+                            result.put("signStatus", dataMap.get("signStatus"));
+                        }
+                    }
+                }
+                if (RESP_CODE_DUPLICATE.equals(code)) {
+                    log.warn("国家平台返回重复上报, bizNo={}, message={}", bizNo, message);
+                } else {
+                    log.info("国家平台上报成功, bizNo={}, message={}", bizNo, message);
+                }
+            } else {
+                result.put("success", false);
+                result.put("message", message != null ? message : "上报失败");
+                log.error("国家平台返回错误, bizNo={}, code={}, message={}", bizNo, code, message);
+            }
+        } catch (Exception e) {
+            log.error("解析国家平台响应失败(含数据), bizNo={}, response={}", bizNo, responseBody, e);
+            result.put("success", false);
+            result.put("message", "解析响应失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+    private Map<String, Object> mockPlatformCallWithResult(String url, String requestJson, String bizNo) {
+        log.info("【模拟对接】调用国家环保平台API(含结果), url={}, request={}", url, requestJson);
+
+        try {
+            Thread.sleep(200L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        boolean success = true;
+        result.put("success", success);
+        result.put("message", success ? "success" : "系统繁忙");
+
+        if (success) {
+            String platformBizNo = "GJ" + System.currentTimeMillis();
+            result.put("platformBizNo", platformBizNo);
+            result.put("nationalOrderNo", platformBizNo);
+            result.put("status", 2);
+            result.put("reportTime", LocalDateTime.now().format(FORMATTER));
+        }
+
+        log.info("【模拟对接】国家环保平台响应(含结果), bizNo={}, result={}", bizNo, JsonUtils.toJson(result));
+        return result;
+    }
 }

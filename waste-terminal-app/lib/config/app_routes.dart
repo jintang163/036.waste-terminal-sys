@@ -13,6 +13,7 @@ import '../pages/inventory_check_page.dart';
 import '../pages/scan_page.dart';
 import '../pages/mine_page.dart';
 import '../pages/platform_report_dashboard_page.dart';
+import '../pages/transfer_order_detail_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -51,8 +52,6 @@ class AppRoutes {
         wasteIn: (context) => const WasteInPage(),
         wasteOut: (context) => const WasteOutPage(),
         transferOrder: (context) => const WarningPage(),
-        transferOrderDetail: (context) =>
-            const _PlaceholderPage(title: 'Transfer Order Detail'),
         inventoryCheck: (context) => const InventoryCheckPage(),
         inventoryCheckDetail: (context) =>
             const _PlaceholderPage(title: 'Inventory Check Detail'),
@@ -74,6 +73,18 @@ class AppRoutes {
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
+      case transferOrderDetail:
+        final args = settings.arguments;
+        int orderId = 0;
+        if (args is Map) {
+          orderId = args['orderId'] as int? ?? 0;
+        } else if (args is int) {
+          orderId = args;
+        }
+        return MaterialPageRoute(
+          builder: (context) => TransferOrderDetailPage(orderId: orderId),
+          settings: settings,
+        );
       default:
         return MaterialPageRoute(
           builder: (context) => const _PlaceholderPage(title: 'Unknown'),

@@ -50,6 +50,9 @@ public class WasteOutRecordServiceImpl implements WasteOutRecordService {
     @Autowired
     private WasteMqProducer wasteMqProducer;
 
+    @Autowired
+    private com.waste.service.WasteTransferOrderService wasteTransferOrderService;
+
     @Override
     public IPage<WasteOutRecord> page(PageQuery pageQuery, WasteOutRecord wasteOutRecord, Long enterpriseId) {
         Page<WasteOutRecord> page = new Page<>(pageQuery.getPageNum(), pageQuery.getPageSize());
@@ -271,6 +274,20 @@ public class WasteOutRecordServiceImpl implements WasteOutRecordService {
         record.setOutTime(LocalDateTime.now());
         wasteOutRecordMapper.updateById(record);
 
+        if (record.getTransferOrderId() == null) {
+            try {
+                com.waste.entity.WasteTransferOrder order = wasteTransferOrderService.createAndReportFromOutRecord(record);
+                if (order != null) {
+                    record.setTransferOrderId(order.getId());
+                    wasteOutRecordMapper.updateById(record);
+                    log.info("出库确认自动创建联单成功, outRecordId={}, orderId={}, orderNo={}",
+                            record.getId(), order.getId(), order.getOrderNo());
+                }
+            } catch (Exception e) {
+                log.error("出库确认自动创建联单失败, outRecordId={}", record.getId(), e);
+            }
+        }
+
         try {
             wasteMqProducer.sendWasteOutReport(record);
             wasteMqProducer.sendWasteOutSync(record);
@@ -412,6 +429,20 @@ public class WasteOutRecordServiceImpl implements WasteOutRecordService {
             wasteContainerMapper.updateById(container);
         }
         wasteInventoryMapper.updateById(inventory);
+
+        if (record.getTransferOrderId() == null) {
+            try {
+                com.waste.entity.WasteTransferOrder order = wasteTransferOrderService.createAndReportFromOutRecord(record);
+                if (order != null) {
+                    record.setTransferOrderId(order.getId());
+                    wasteOutRecordMapper.updateById(record);
+                    log.info("出库记录自动创建联单成功, outRecordId={}, orderId={}, orderNo={}",
+                            record.getId(), order.getId(), order.getOrderNo());
+                }
+            } catch (Exception e) {
+                log.error("出库记录自动创建联单失败, outRecordId={}", record.getId(), e);
+            }
+        }
 
         try {
             wasteMqProducer.sendWasteOutReport(record);

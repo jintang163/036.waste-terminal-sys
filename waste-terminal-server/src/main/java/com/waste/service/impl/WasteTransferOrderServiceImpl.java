@@ -24,6 +24,7 @@ import com.waste.statemachine.TransferOrderStateMachine;
 import com.waste.utils.IdGeneratorUtils;
 import com.waste.utils.JsonUtils;
 import com.waste.utils.QrCodeUtils;
+import com.waste.utils.UserContext;
 import com.waste.vo.TransferOrderVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -356,35 +357,13 @@ public class WasteTransferOrderServiceImpl implements WasteTransferOrderService 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void sign(Long id, String signPhoto) {
-        WasteTransferOrder order = getOrderById(id);
-        if (order.getStatus() != 1) {
-            throw new BusinessException("联单状态不正确，无法签收，需为待上报状态");
-        }
-        if (StrUtil.isNotBlank(signPhoto)) {
-            order.setSignPhoto(signPhoto);
-        }
-        order.setActualArriveTime(LocalDateTime.now());
-        wasteTransferOrderMapper.updateById(order);
+        signOrder(id, UserContext.getCurrentRealName(), UserContext.getCurrentUserId(), signPhoto);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void complete(Long id, String receiptPhoto) {
-        WasteTransferOrder order = getOrderById(id);
-        if (order.getStatus() == 2) {
-            throw new BusinessException("联单已完成，请勿重复操作");
-        }
-        if (order.getStatus() == -1) {
-            throw new BusinessException("联单已取消，无法完成");
-        }
-        if (StrUtil.isBlank(order.getSignPhoto())) {
-            throw new BusinessException("联单尚未签收，请先签收");
-        }
-        if (StrUtil.isNotBlank(receiptPhoto)) {
-            order.setReceiptPhoto(receiptPhoto);
-        }
-        order.setStatus(2);
-        wasteTransferOrderMapper.updateById(order);
+        completeOrder(id, UserContext.getCurrentRealName(), UserContext.getCurrentUserId(), receiptPhoto);
     }
 
     @Override
@@ -614,21 +593,7 @@ public class WasteTransferOrderServiceImpl implements WasteTransferOrderService 
     }
 
     private String getStatusName(Integer status) {
-        if (status == null) {
-            return "未知";
-        }
-        switch (status) {
-            case 0:
-                return "待提交";
-            case 1:
-                return "待上报";
-            case 2:
-                return "已完成";
-            case -1:
-                return "已取消";
-            default:
-                return "未知";
-        }
+        return TransferOrderStatusEnum.getNameByCode(status);
     }
 
     private String getReportStatusName(Integer reportStatus) {
@@ -735,5 +700,218 @@ public class WasteTransferOrderServiceImpl implements WasteTransferOrderService 
         List<TransferOrderTimeline> timelineList = timelineService.getTimelineByOrderId(id);
         vo.setTimelineList(timelineList);
         return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public WasteTransferOrder createAndReportFromOutRecord(com.waste.entity.WasteOutRecord outRecord) {
+        log.info("根据出库记录创建并上报联单, outRecordId={}, outNo={}", outRecord.getId(), outRecord.getOutNo());
+
+        TransferOrderDTO dto = new TransferOrderDTO();
+        dto.setGeneratorUnitId(outRecord.getEnterpriseId());
+        dto.setReceiverUnitId(outRecord.getReceiverUnitId());
+        dto.setReceiverUnitName(outRecord.getReceiverUnitName());
+        dto.setTransporterId(outRecord.getTransporterId());
+        dto.setTransporterName(outRecord.getTransporterName());
+        dto.setVehicleNo(outRecord.getVehicleNo());
+        dto.setDriverName(outRecord.getDriverName());
+        dto.setDriverPhone(outRecord.getDriverPhone());
+        dto.setTotalWeight(outRecord.getWeight());
+        dto.setTotalContainers(1);
+        dto.setOperatorId(outRecord.getOperatorId());
+        dto.setOperatorName(outRecord.getOperatorName());
+        dto.setRemark(outRecord.getRemark());
+        dto.setEnterpriseId(outRecord.getEnterpriseId());
+        dto.setOrderType("1");
+
+        TransferOrderDTO.WasteItemDTO wasteItem = new TransferOrderDTO.WasteItemDTO();
+        wasteItem.setWasteId(outRecord.getWasteId());
+        wasteItem.setWasteCode(outRecord.getWasteCode());
+        wasteItem.setWasteName(outRecord.getWasteName());
+        wasteItem.setContainerId(outRecord.getContainerId());
+        wasteItem.setContainerCode(outRecord.getContainerCode());
+        wasteItem.setWeight(outRecord.getWeight());
+        dto.setWasteDetails(java.util.Collections.singletonList(wasteItem));
+
+        EnterpriseInfo generatorUnit = enterpriseInfoMapper.selectById(outRecord.getEnterpriseId());
+        if (generatorUnit != null) {
+            dto.setGeneratorUnitName(generatorUnit.getEnterpriseName());
+            dto.setGeneratorUnitCode(generatorUnit.getEnterpriseCode());
+        }
+
+        EnterpriseInfo receiverUnit = null;
+        if (outRecord.getReceiverUnitId() != null) {
+            receiverUnit = enterpriseInfoMapper.selectById(outRecord.getReceiverUnitId());
+        }
+        if (receiverUnit != null) {
+            dto.setReceiverUnitName(receiverUnit.getEnterpriseName());
+            dto.setReceiverUnitCode(receiverUnit.getEnterpriseCode());
+            dto.setReceiverLicenseNo(receiverUnit.getWasteLicense());
+        }
+
+        String orderNo = IdGeneratorUtils.generateTransferOrderNo();
+        String qrCodeContent = buildQrCodeContent(orderNo);
+        String qrCodeBase64 = QrCodeUtils.generateQrCodeBase64(qrCodeContent);
+
+        WasteTransferOrder order = new WasteTransferOrder();
+        org.springframework.beans.BeanUtils.copyProperties(dto, order);
+        order.setOrderNo(orderNo);
+        order.setQrCode(qrCodeBase64);
+        order.setStatus(TransferOrderStatusEnum.PENDING_REPORT.getCode());
+        order.setReportStatus(2);
+        order.setSyncStatus(1);
+        order.setReportTime(LocalDateTime.now());
+        order.setStartTime(outRecord.getOutTime());
+
+        if (CollUtil.isNotEmpty(dto.getWasteDetails())) {
+            order.setWasteDetails(JsonUtils.toJson(dto.getWasteDetails()));
+        }
+
+        wasteTransferOrderMapper.insert(order);
+
+        timelineService.addTimeline(
+                order.getId(), order.getOrderNo(), null,
+                null, TransferOrderStatusEnum.PENDING_REPORT.getCode(),
+                TransferOrderStatusEnum.PENDING_REPORT.getName(),
+                outRecord.getOperatorName(), outRecord.getOperatorId(),
+                null, "出库确认，自动创建联单",
+                null, outRecord.getEnterpriseId()
+        );
+
+        Map<String, Object> reportResult = nationalPlatformService.reportElectronicManifestWithResult(order);
+        if (reportResult != null && Boolean.TRUE.equals(reportResult.get("success"))) {
+            String nationalOrderNo = reportResult.get("nationalOrderNo") != null
+                    ? reportResult.get("nationalOrderNo").toString()
+                    : null;
+            if (nationalOrderNo != null) {
+                order.setNationalOrderNo(nationalOrderNo);
+            }
+            order.setReportStatus(1);
+            order.setStatus(TransferOrderStatusEnum.PENDING_TRANSPORT.getCode());
+            wasteTransferOrderMapper.updateById(order);
+
+            timelineService.addTimeline(
+                    order.getId(), order.getOrderNo(), order.getNationalOrderNo(),
+                    TransferOrderStatusEnum.PENDING_REPORT.getCode(),
+                    TransferOrderStatusEnum.PENDING_TRANSPORT.getCode(),
+                    TransferOrderStatusEnum.PENDING_TRANSPORT.getName(),
+                    "SYSTEM", null, null,
+                    "上报国家平台成功，联单号: " + order.getNationalOrderNo(),
+                    null, outRecord.getEnterpriseId()
+            );
+            log.info("联单上报成功, orderId={}, orderNo={}, nationalOrderNo={}",
+                    order.getId(), order.getOrderNo(), order.getNationalOrderNo());
+        } else {
+            order.setReportStatus(3);
+            String failReason = reportResult != null && reportResult.get("message") != null
+                    ? reportResult.get("message").toString()
+                    : "上报国家平台失败";
+            wasteTransferOrderMapper.updateById(order);
+            timelineService.addTimeline(
+                    order.getId(), order.getOrderNo(), null,
+                    null, null, null,
+                    "SYSTEM", null, null,
+                    "上报国家平台失败: " + failReason,
+                    null, outRecord.getEnterpriseId()
+            );
+            log.warn("联单上报失败, orderId={}, orderNo={}, reason={}",
+                    order.getId(), order.getOrderNo(), failReason);
+        }
+
+        try {
+            wasteMqProducer.sendTransferOrderSync(order);
+        } catch (Exception e) {
+            log.error("发送联单同步MQ失败, orderId={}", order.getId(), e);
+        }
+
+        return order;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean syncStatusFromRemote(Long orderId) {
+        WasteTransferOrder order = getOrderById(orderId);
+        if (StrUtil.isBlank(order.getNationalOrderNo()) && StrUtil.isBlank(order.getOrderNo())) {
+            log.warn("联单无国家联单号和本地联单号，无法同步远程状态, orderId={}", orderId);
+            return false;
+        }
+
+        Map<String, Object> statusResult = nationalPlatformService.queryTransferOrderStatus(
+                order.getNationalOrderNo(), order.getOrderNo());
+
+        if (statusResult == null || !Boolean.TRUE.equals(statusResult.get("success"))) {
+            log.warn("查询远程联单状态失败, orderId={}", orderId);
+            return false;
+        }
+
+        Integer localStatus = statusResult.get("localStatus") != null
+                ? (Integer) statusResult.get("localStatus")
+                : null;
+        if (localStatus == null) {
+            return false;
+        }
+
+        if (statusResult.get("nationalOrderNo") != null && StrUtil.isBlank(order.getNationalOrderNo())) {
+            order.setNationalOrderNo(statusResult.get("nationalOrderNo").toString());
+            wasteTransferOrderMapper.updateById(order);
+        }
+
+        TransferOrderStatusEnum currentStatus = TransferOrderStatusEnum.getByCode(order.getStatus());
+        TransferOrderStatusEnum targetStatus = TransferOrderStatusEnum.getByCode(localStatus);
+
+        if (currentStatus == null || targetStatus == null) {
+            return false;
+        }
+
+        if (currentStatus == targetStatus) {
+            return true;
+        }
+
+        if (!currentStatus.canTransitionTo(targetStatus)) {
+            log.warn("联单状态流转不合法, orderId={}, current={}, target={}",
+                    orderId, currentStatus.getCode(), targetStatus.getCode());
+            return false;
+        }
+
+        TransferOrderEventTypeEnum eventType = resolveEventType(currentStatus, targetStatus);
+        if (eventType != null) {
+            stateMachine.transition(order, eventType, "SYNC", null);
+            log.info("同步远程状态成功, orderId={}, {} -> {}",
+                    orderId, currentStatus.getName(), targetStatus.getName());
+            return true;
+        }
+
+        order.setStatus(targetStatus.getCode());
+        wasteTransferOrderMapper.updateById(order);
+        timelineService.addTimeline(
+                order.getId(), order.getOrderNo(), order.getNationalOrderNo(),
+                currentStatus.getCode(), targetStatus.getCode(),
+                targetStatus.getName(), "SYNC", null, null,
+                "同步远程状态变更: " + currentStatus.getName() + " → " + targetStatus.getName(),
+                null, order.getEnterpriseId()
+        );
+        return true;
+    }
+
+    private TransferOrderEventTypeEnum resolveEventType(TransferOrderStatusEnum from, TransferOrderStatusEnum to) {
+        if (from == TransferOrderStatusEnum.PENDING_REPORT && to == TransferOrderStatusEnum.PENDING_TRANSPORT) {
+            return TransferOrderEventTypeEnum.REPORT_SUCCESS;
+        }
+        if (from == TransferOrderStatusEnum.PENDING_TRANSPORT && to == TransferOrderStatusEnum.IN_TRANSIT) {
+            return TransferOrderEventTypeEnum.START_TRANSPORT;
+        }
+        if (from == TransferOrderStatusEnum.IN_TRANSIT && to == TransferOrderStatusEnum.ARRIVED) {
+            return TransferOrderEventTypeEnum.ARRIVE;
+        }
+        if (from == TransferOrderStatusEnum.ARRIVED && to == TransferOrderStatusEnum.SIGNED) {
+            return TransferOrderEventTypeEnum.SIGN;
+        }
+        if (from == TransferOrderStatusEnum.SIGNED && to == TransferOrderStatusEnum.COMPLETED) {
+            return TransferOrderEventTypeEnum.COMPLETE;
+        }
+        if (to == TransferOrderStatusEnum.CANCELLED) {
+            return TransferOrderEventTypeEnum.CANCEL;
+        }
+        return null;
     }
 }

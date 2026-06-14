@@ -321,4 +321,11 @@ public class WasteTransferOrderController {
         TransferOrderVO vo = wasteTransferOrderService.getDetailWithTimeline(id);
         return Result.success(vo);
     }
+
+    @PostMapping("/sync-status/{id}")
+    @RequiresLogin
+    public Result<Boolean> syncStatus(@PathVariable Long id) {
+        boolean success = wasteTransferOrderService.syncStatusFromRemote(id);
+        return Result.success(success);
+    }
 }

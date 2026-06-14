@@ -70,4 +70,8 @@ public interface WasteTransferOrderService {
     List<TransferOrderTimeline> getTimeline(Long id);
 
     TransferOrderVO getDetailWithTimeline(Long id);
+
+    WasteTransferOrder createAndReportFromOutRecord(com.waste.entity.WasteOutRecord outRecord);
+
+    boolean syncStatusFromRemote(Long orderId);
 }
