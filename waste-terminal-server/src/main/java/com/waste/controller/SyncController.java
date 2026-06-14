@@ -7,11 +7,14 @@ import com.waste.annotation.RequiresLogin;
 import com.waste.common.PageQuery;
 import com.waste.common.PageResult;
 import com.waste.common.Result;
+import com.waste.dto.DeltaSyncDTO;
+import com.waste.dto.DeltaSyncResultDTO;
 import com.waste.dto.InventoryCheckDTO;
 import com.waste.dto.SyncDataDTO;
 import com.waste.dto.TransferOrderDTO;
 import com.waste.dto.WasteInRecordDTO;
 import com.waste.dto.WasteOutRecordDTO;
+import com.waste.entity.DataVersion;
 import com.waste.entity.DeviceInfo;
 import com.waste.entity.InventoryCheck;
 import com.waste.entity.SyncRecord;
@@ -22,6 +25,7 @@ import com.waste.entity.WasteInventory;
 import com.waste.entity.WasteOutRecord;
 import com.waste.entity.WasteTransferOrder;
 import com.waste.entity.WarningRecord;
+import com.waste.mapper.DataVersionMapper;
 import com.waste.mapper.DeviceInfoMapper;
 import com.waste.mapper.SyncRecordMapper;
 import com.waste.mapper.WasteCatalogMapper;
@@ -31,6 +35,7 @@ import com.waste.mapper.WasteInventoryMapper;
 import com.waste.mapper.WasteOutRecordMapper;
 import com.waste.mapper.WasteTransferOrderMapper;
 import com.waste.mapper.InventoryCheckMapper;
+import com.waste.service.DataSyncService;
 import com.waste.service.InventoryCheckService;
 import com.waste.service.WasteCatalogService;
 import com.waste.service.WasteContainerService;
@@ -46,6 +51,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -106,6 +112,12 @@ public class SyncController {
 
     @Autowired
     private DeviceInfoMapper deviceInfoMapper;
+
+    @Autowired
+    private DataSyncService dataSyncService;
+
+    @Autowired
+    private DataVersionMapper dataVersionMapper;
 
     @PostMapping("/pull")
     @RequiresLogin
@@ -621,5 +633,164 @@ public class SyncController {
             result.add(dto);
         }
         return result;
+    }
+
+    @GetMapping("/versions")
+    @RequiresLogin
+    public Result<Map<String, DeltaSyncResultDTO.VersionInfo>> getCurrentVersions() {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+        return Result.success(dataSyncService.getCurrentVersions(enterpriseId));
+    }
+
+    @PostMapping("/delta")
+    @RequiresLogin
+    @Transactional(rollbackFor = Exception.class)
+    public Result<DeltaSyncResultDTO> deltaSync(@RequestBody DeltaSyncDTO request) {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+        if (request.getEnterpriseId() == null) {
+            request.setEnterpriseId(enterpriseId);
+        }
+
+        DeltaSyncResultDTO result = dataSyncService.performDeltaSync(request, enterpriseId);
+
+        SyncRecord syncRecord = new SyncRecord();
+        syncRecord.setSyncNo(result.getSyncNo());
+        syncRecord.setSyncType("DELTA");
+        syncRecord.setSyncDirection("BOTH");
+        syncRecord.setDeviceId(request.getDeviceId());
+        syncRecord.setSyncTime(LocalDateTime.now());
+        syncRecord.setStatus(1);
+        syncRecord.setTotalCount(result.getStatistics().getTotalOperations());
+        syncRecord.setSuccessCount(result.getStatistics().getSuccessCount() + result.getStatistics().getDuplicateCount());
+        syncRecord.setFailCount(result.getStatistics().getFailCount());
+        syncRecord.setSyncDuration(result.getStatistics().getSyncDurationMs() != null
+                ? (int) (result.getStatistics().getSyncDurationMs() / 1000) : 0);
+        syncRecord.setEnterpriseId(enterpriseId);
+        syncRecordMapper.insert(syncRecord);
+
+        return Result.success(result);
+    }
+
+    @GetMapping("/delta/dictionary")
+    @RequiresLogin
+    public Result<DeltaSyncResultDTO.DictionaryData> pullDeltaDictionary(
+            @RequestParam(required = false) Long catalogVersion,
+            @RequestParam(required = false) Long receiverUnitVersion,
+            @RequestParam(required = false) Long vehicleVersion,
+            @RequestParam(required = false) Long containerVersion) {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+
+        Map<String, Long> dataVersions = new HashMap<>();
+        if (catalogVersion != null) {
+            dataVersions.put(DataSyncServiceImpl.DATA_TYPE_WASTE_CATALOG, catalogVersion);
+        }
+        if (receiverUnitVersion != null) {
+            dataVersions.put(DataSyncServiceImpl.DATA_TYPE_RECEIVER_UNIT, receiverUnitVersion);
+        }
+        if (vehicleVersion != null) {
+            dataVersions.put(DataSyncServiceImpl.DATA_TYPE_VEHICLE, vehicleVersion);
+        }
+        if (containerVersion != null) {
+            dataVersions.put(DataSyncServiceImpl.DATA_TYPE_CONTAINER, containerVersion);
+        }
+
+        DeltaSyncResultDTO result = dataSyncService.performDeltaSync(
+                new DeltaSyncDTO() {{
+                    setDataVersions(dataVersions);
+                    setEnterpriseId(enterpriseId);
+                }},
+                enterpriseId
+        );
+        return Result.success(result.getDictionaryData());
+    }
+
+    @PostMapping("/delta/push-queue")
+    @RequiresLogin
+    @Transactional(rollbackFor = Exception.class)
+    public Result<DeltaSyncResultDTO.SyncStatistics> pushOperationQueue(
+            @RequestBody List<DeltaSyncDTO.OperationQueueItem> operationQueue,
+            @RequestParam(required = false) String deviceId) {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+
+        DeltaSyncDTO request = new DeltaSyncDTO();
+        request.setDeviceId(deviceId);
+        request.setEnterpriseId(enterpriseId);
+        request.setOperationQueue(operationQueue);
+        request.setClientSyncTime(LocalDateTime.now());
+
+        DeltaSyncResultDTO result = dataSyncService.performDeltaSync(request, enterpriseId);
+
+        SyncRecord syncRecord = new SyncRecord();
+        syncRecord.setSyncNo(result.getSyncNo());
+        syncRecord.setSyncType("DELTA_PUSH");
+        syncRecord.setSyncDirection("PUSH");
+        syncRecord.setDeviceId(deviceId);
+        syncRecord.setSyncTime(LocalDateTime.now());
+        syncRecord.setStatus(1);
+        syncRecord.setTotalCount(result.getStatistics().getTotalOperations());
+        syncRecord.setSuccessCount(result.getStatistics().getSuccessCount() + result.getStatistics().getDuplicateCount());
+        syncRecord.setFailCount(result.getStatistics().getFailCount());
+        syncRecord.setSyncDuration(result.getStatistics().getSyncDurationMs() != null
+                ? (int) (result.getStatistics().getSyncDurationMs() / 1000) : 0);
+        syncRecord.setEnterpriseId(enterpriseId);
+        syncRecordMapper.insert(syncRecord);
+
+        return Result.success(result.getStatistics());
+    }
+
+    @PostMapping("/version/bump")
+    @RequiresLogin
+    @Transactional(rollbackFor = Exception.class)
+    public Result<Map<String, Object>> bumpVersion(
+            @RequestParam String dataType,
+            @RequestParam(required = false) String changeSummary,
+            @RequestParam(required = false) Long recordCount) {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+        dataSyncService.bumpVersion(dataType, enterpriseId, changeSummary,
+                recordCount != null ? recordCount : 0L);
+
+        Map<String, DeltaSyncResultDTO.VersionInfo> versions = dataSyncService.getCurrentVersions(enterpriseId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("dataType", dataType);
+        result.put("currentVersion", versions.get(dataType) != null ? versions.get(dataType).getCurrentVersion() : 1L);
+        result.put("versionTime", versions.get(dataType) != null ? versions.get(dataType).getVersionTime() : LocalDateTime.now());
+        return Result.success(result);
+    }
+
+    @GetMapping("/version/history")
+    @RequiresLogin
+    public Result<List<DataVersion>> getVersionHistory(
+            @RequestParam(required = false) String dataType,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        Long enterpriseId = UserContext.getCurrentEnterpriseId();
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+
+        LambdaQueryWrapper<DataVersion> wrapper = new LambdaQueryWrapper<>();
+        if (dataType != null && !dataType.isEmpty()) {
+            wrapper.eq(DataVersion::getDataType, dataType);
+        }
+        wrapper.and(w -> w.eq(DataVersion::getEnterpriseId, enterpriseId).or().isNull(DataVersion::getEnterpriseId));
+        wrapper.orderByDesc(DataVersion::getVersionTime);
+        if (limit != null && limit > 0) {
+            wrapper.last("LIMIT " + limit);
+        }
+        return Result.success(dataVersionMapper.selectList(wrapper));
     }
 }

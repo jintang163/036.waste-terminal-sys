@@ -57,6 +57,8 @@ public class InventoryCheck extends BaseEntity {
 
     private Integer syncStatus;
 
+    private String syncFailReason;
+
     private String offlineId;
 
     private Long enterpriseId;
