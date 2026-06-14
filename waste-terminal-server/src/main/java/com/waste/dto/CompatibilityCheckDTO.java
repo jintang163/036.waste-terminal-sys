@@ -46,6 +46,7 @@ public class CompatibilityCheckDTO {
         private String wasteCode;
         private String wasteName;
         private String wasteCategory;
+        private String hwCategory;
         private BigDecimal weight;
         private String batchNo;
     }

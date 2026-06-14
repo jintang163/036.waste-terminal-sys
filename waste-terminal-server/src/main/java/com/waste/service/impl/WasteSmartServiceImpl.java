@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -39,6 +40,9 @@ public class WasteSmartServiceImpl implements WasteSmartService {
     public static final String PHYSICAL_STATE_SLUDGE = "sludge";
     public static final String PHYSICAL_STATE_PASTE = "paste";
 
+    private static final Pattern HW_PATTERN = Pattern.compile("HW(\\d{1,2})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NATIONAL_CODE_PATTERN = Pattern.compile("\\d{3}-\\d{3}-(\\d{2})");
+
     @Autowired
     private WastePackagingRuleMapper packagingRuleMapper;
 
@@ -54,6 +58,8 @@ public class WasteSmartServiceImpl implements WasteSmartService {
         result.setWasteCode(wasteCode);
 
         WasteCatalog catalog = findCatalog(wasteCode, enterpriseId);
+        String hwCategory = resolveHwCategory(wasteCode, catalog);
+
         if (catalog != null) {
             result.setWasteName(catalog.getWasteName());
             result.setWasteCategory(catalog.getWasteCategory());
@@ -61,14 +67,11 @@ public class WasteSmartServiceImpl implements WasteSmartService {
             result.setStorageRequirement(catalog.getStorageRequirement());
         }
 
-        List<WastePackagingRule> matchedRules = findMatchedRules(catalog);
+        List<WastePackagingRule> matchedRules = findMatchedRulesLayered(hwCategory, catalog);
         if (CollUtil.isEmpty(matchedRules)) {
-            log.warn("未找到包装规则, 使用默认推荐, wasteCode={}", wasteCode);
+            log.warn("未找到包装规则, 使用默认推荐, wasteCode={}, hwCategory={}", wasteCode, hwCategory);
             matchedRules = getDefaultRules(catalog);
         }
-
-        matchedRules.sort(Comparator.comparingInt(
-                r -> r.getPriority() != null ? r.getPriority() : 99));
 
         if (CollUtil.isNotEmpty(matchedRules)) {
             WastePackagingRule primary = matchedRules.get(0);
@@ -116,16 +119,124 @@ public class WasteSmartServiceImpl implements WasteSmartService {
         result.setIncompatibilities(new ArrayList<>());
         result.setSuggestions(new ArrayList<>());
 
-        if (request == null || CollUtil.isEmpty(request.getItems()) || request.getItems().size() < 2) {
+        if (request == null || CollUtil.isEmpty(request.getItems())) {
+            result.setSummary("未提供检查条目");
+            return result;
+        }
+
+        List<CompatibilityCheckDTO.WasteItem> allItems = enrichItems(request.getItems(), enterpriseId);
+
+        String batchNo = request.getBatchNo();
+        List<CompatibilityCheckDTO.WasteItem> items;
+        if (StrUtil.isNotBlank(batchNo)) {
+            items = allItems.stream()
+                    .filter(it -> batchNo.equals(it.getBatchNo()))
+                    .collect(Collectors.toList());
+            if (items.size() < allItems.size()) {
+                log.info("按批次号[{}]筛选: {}/{} 条", batchNo, items.size(), allItems.size());
+            }
+        } else {
+            Map<String, List<CompatibilityCheckDTO.WasteItem>> byBatch = allItems.stream()
+                    .filter(it -> StrUtil.isNotBlank(it.getBatchNo()))
+                    .collect(Collectors.groupingBy(CompatibilityCheckDTO.WasteItem::getBatchNo));
+            List<CompatibilityCheckDTO.WasteItem> noBatch = allItems.stream()
+                    .filter(it -> StrUtil.isBlank(it.getBatchNo()))
+                    .collect(Collectors.toList());
+
+            if (byBatch.size() == 1 && noBatch.isEmpty()) {
+                items = allItems;
+            } else if (!byBatch.isEmpty()) {
+                return checkCompatibilityByBatch(byBatch, noBatch, enterpriseId, request.getIncludeCompatibleGroups());
+            } else {
+                items = allItems;
+            }
+        }
+
+        if (items.size() < 2) {
             result.setSummary("同批次危废数量不足2种，无需相容性检查");
             result.setSuggestions(Collections.singletonList("单种危废可直接按包装推荐存放"));
-            if (Boolean.TRUE.equals(request.getIncludeCompatibleGroups()) && CollUtil.isNotEmpty(request.getItems())) {
-                result.setCompatibleGroups(buildSingleGroups(request.getItems()));
+            if (Boolean.TRUE.equals(request.getIncludeCompatibleGroups())) {
+                result.setCompatibleGroups(buildSingleGroups(items));
             }
             return result;
         }
 
-        List<CompatibilityCheckDTO.WasteItem> items = enrichItems(request.getItems(), enterpriseId);
+        return doCheck(items, request.getIncludeCompatibleGroups());
+    }
+
+    private CompatibilityCheckDTO checkCompatibilityByBatch(
+            Map<String, List<CompatibilityCheckDTO.WasteItem>> byBatch,
+            List<CompatibilityCheckDTO.WasteItem> noBatch,
+            Long enterpriseId,
+            Boolean includeGroups) {
+
+        CompatibilityCheckDTO merged = new CompatibilityCheckDTO();
+        merged.setCompatible(true);
+        merged.setRiskLevel(0);
+        merged.setIncompatibilities(new ArrayList<>());
+        merged.setSuggestions(new ArrayList<>());
+        merged.setCompatibleGroups(new ArrayList<>());
+
+        List<String> batchSummaries = new ArrayList<>();
+        int totalIncompatibilities = 0;
+        int maxRisk = 0;
+
+        for (Map.Entry<String, List<CompatibilityCheckDTO.WasteItem>> entry : byBatch.entrySet()) {
+            String batch = entry.getKey();
+            List<CompatibilityCheckDTO.WasteItem> batchItems = entry.getValue();
+            if (batchItems.size() < 2) {
+                batchSummaries.add(String.format("批次[%s]: 仅%d种危废，无需检查", batch, batchItems.size()));
+                continue;
+            }
+            CompatibilityCheckDTO batchResult = doCheck(batchItems, includeGroups);
+            if (!batchResult.getCompatible()) {
+                merged.setCompatible(false);
+                totalIncompatibilities += batchResult.getIncompatibilities().size();
+                if (batchResult.getRiskLevel() > maxRisk) {
+                    maxRisk = batchResult.getRiskLevel();
+                }
+                merged.getIncompatibilities().addAll(batchResult.getIncompatibilities());
+                merged.getSuggestions().addAll(batchResult.getSuggestions());
+            }
+            batchSummaries.add(String.format("批次[%s]: %s", batch, batchResult.getSummary()));
+            if (batchResult.getCompatibleGroups() != null) {
+                for (CompatibilityCheckDTO.CompatibilityGroup g : batchResult.getCompatibleGroups()) {
+                    g.setGroupId(batch + "-" + g.getGroupId());
+                    g.setGroupDescription("[批次" + batch + "] " + g.getGroupDescription());
+                }
+                merged.getCompatibleGroups().addAll(batchResult.getCompatibleGroups());
+            }
+        }
+
+        if (!noBatch.isEmpty() && noBatch.size() >= 2) {
+            CompatibilityCheckDTO noBatchResult = doCheck(noBatch, includeGroups);
+            if (!noBatchResult.getCompatible()) {
+                merged.setCompatible(false);
+                totalIncompatibilities += noBatchResult.getIncompatibilities().size();
+                if (noBatchResult.getRiskLevel() > maxRisk) {
+                    maxRisk = noBatchResult.getRiskLevel();
+                }
+                merged.getIncompatibilities().addAll(noBatchResult.getIncompatibilities());
+                merged.getSuggestions().addAll(noBatchResult.getSuggestions());
+            }
+            batchSummaries.add("[未指定批次]: " + noBatchResult.getSummary());
+            if (noBatchResult.getCompatibleGroups() != null) {
+                merged.getCompatibleGroups().addAll(noBatchResult.getCompatibleGroups());
+            }
+        }
+
+        merged.setRiskLevel(maxRisk);
+        merged.setSummary(String.join("; ", batchSummaries));
+        return merged;
+    }
+
+    private CompatibilityCheckDTO doCheck(List<CompatibilityCheckDTO.WasteItem> items, Boolean includeGroups) {
+        CompatibilityCheckDTO result = new CompatibilityCheckDTO();
+        result.setCompatible(true);
+        result.setRiskLevel(0);
+        result.setIncompatibilities(new ArrayList<>());
+        result.setSuggestions(new ArrayList<>());
+
         List<CompatibilityCheckDTO.IncompatibilityDetail> incompatibilities = new ArrayList<>();
         Set<String> checkedPairs = new HashSet<>();
         int maxRiskLevel = 0;
@@ -141,7 +252,8 @@ public class WasteSmartServiceImpl implements WasteSmartService {
                 }
                 checkedPairs.add(pairKey);
 
-                List<WasteIncompatibility> rules = findIncompatibilityRules(a, b);
+                List<WasteIncompatibility> rules = findIncompatibilityRules(a.getHwCategory(), a.getWasteCode(),
+                        b.getHwCategory(), b.getWasteCode());
                 if (CollUtil.isNotEmpty(rules)) {
                     for (WasteIncompatibility rule : rules) {
                         CompatibilityCheckDTO.IncompatibilityDetail detail = buildIncompatibilityDetail(a, b, rule);
@@ -180,7 +292,7 @@ public class WasteSmartServiceImpl implements WasteSmartService {
             result.getSuggestions().add("相容性检查通过，建议仍按包装要求分类存放");
         }
 
-        if (Boolean.TRUE.equals(request.getIncludeCompatibleGroups())) {
+        if (Boolean.TRUE.equals(includeGroups)) {
             result.setCompatibleGroups(buildCompatibleGroups(items, incompatibilities));
         }
 
@@ -191,10 +303,19 @@ public class WasteSmartServiceImpl implements WasteSmartService {
 
     @Override
     public List<WasteIncompatibility> findIncompatibilities(String wasteCode, Long enterpriseId) {
+        String hwCategory = resolveHwCategory(wasteCode, findCatalog(wasteCode, enterpriseId));
+        log.info("查询禁忌物: wasteCode={}, hwCategory={}", wasteCode, hwCategory);
+
         LambdaQueryWrapper<WasteIncompatibility> wrapper = new LambdaQueryWrapper<>();
-        wrapper.and(w -> w.eq(WasteIncompatibility::getWasteCodeA, wasteCode)
-                .or().eq(WasteIncompatibility::getWasteCodeB, wasteCode));
         wrapper.eq(WasteIncompatibility::getStatus, 1);
+        wrapper.and(w -> {
+            w.eq(WasteIncompatibility::getWasteCodeA, wasteCode)
+                    .or().eq(WasteIncompatibility::getWasteCodeB, wasteCode);
+            if (StrUtil.isNotBlank(hwCategory)) {
+                w.or().like(WasteIncompatibility::getWasteCategoryA, hwCategory)
+                        .or().like(WasteIncompatibility::getWasteCategoryB, hwCategory);
+            }
+        });
         return incompatibilityMapper.selectList(wrapper);
     }
 
@@ -202,11 +323,119 @@ public class WasteSmartServiceImpl implements WasteSmartService {
     public List<WastePackagingRule> listPackagingRules(String wasteCategory, Long enterpriseId) {
         LambdaQueryWrapper<WastePackagingRule> wrapper = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(wasteCategory)) {
-            wrapper.eq(WastePackagingRule::getWasteCategory, wasteCategory);
+            wrapper.and(w -> w.eq(WastePackagingRule::getWasteCategory, wasteCategory)
+                    .or().like(WastePackagingRule::getWasteCategory, wasteCategory)
+                    .or().eq(WastePackagingRule::getWasteCategory, "ALL"));
         }
         wrapper.eq(WastePackagingRule::getStatus, 1);
         wrapper.orderByAsc(WastePackagingRule::getPriority);
         return packagingRuleMapper.selectList(wrapper);
+    }
+
+    String resolveHwCategory(String wasteCode, WasteCatalog catalog) {
+        if (StrUtil.isNotBlank(wasteCode)) {
+            java.util.regex.Matcher m = HW_PATTERN.matcher(wasteCode);
+            if (m.find()) {
+                return "HW" + Integer.parseInt(m.group(1));
+            }
+            m = NATIONAL_CODE_PATTERN.matcher(wasteCode);
+            if (m.find()) {
+                return "HW" + Integer.parseInt(m.group(1));
+            }
+        }
+        if (catalog != null && StrUtil.isNotBlank(catalog.getWasteCode())) {
+            java.util.regex.Matcher m = HW_PATTERN.matcher(catalog.getWasteCode());
+            if (m.find()) {
+                return "HW" + Integer.parseInt(m.group(1));
+            }
+        }
+        return null;
+    }
+
+    private List<WastePackagingRule> findMatchedRulesLayered(String hwCategory, WasteCatalog catalog) {
+        List<WastePackagingRule> allRules = packagingRuleMapper.selectList(
+                new LambdaQueryWrapper<WastePackagingRule>()
+                        .eq(WastePackagingRule::getStatus, 1));
+
+        if (CollUtil.isEmpty(allRules)) {
+            return Collections.emptyList();
+        }
+
+        if (StrUtil.isNotBlank(hwCategory)) {
+            List<WastePackagingRule> tier1 = allRules.stream()
+                    .filter(r -> StrUtil.isNotBlank(r.getWasteCategory())
+                            && !r.getWasteCategory().equals("ALL")
+                            && parseCategories(r.getWasteCategory()).size() == 1
+                            && r.getWasteCategory().equals(hwCategory))
+                    .sorted(Comparator.comparingInt(r -> r.getPriority() != null ? r.getPriority() : 99))
+                    .collect(Collectors.toList());
+            if (CollUtil.isNotEmpty(tier1)) {
+                log.debug("包装推荐命中Tier1(精确单类别): hwCategory={}, rules={}", hwCategory, tier1.size());
+                return tier1;
+            }
+
+            List<WastePackagingRule> tier2 = allRules.stream()
+                    .filter(r -> StrUtil.isNotBlank(r.getWasteCategory())
+                            && !r.getWasteCategory().equals("ALL")
+                            && parseCategories(r.getWasteCategory()).size() > 1
+                            && parseCategories(r.getWasteCategory()).contains(hwCategory))
+                    .sorted(Comparator.comparingInt(r -> r.getPriority() != null ? r.getPriority() : 99))
+                    .collect(Collectors.toList());
+            if (CollUtil.isNotEmpty(tier2)) {
+                log.debug("包装推荐命中Tier2(逗号多类别): hwCategory={}, rules={}", hwCategory, tier2.size());
+                return tier2;
+            }
+        }
+
+        if (catalog != null && StrUtil.isNotBlank(catalog.getHazardCode())) {
+            String catalogHazard = catalog.getHazardCode();
+            List<WastePackagingRule> tier3 = allRules.stream()
+                    .filter(r -> {
+                        if (StrUtil.isBlank(r.getHazardCode())) return false;
+                        Set<String> ruleHazards = parseHazards(r.getHazardCode());
+                        Set<String> catalogHazards = parseHazards(catalogHazard);
+                        return ruleHazards.stream().anyMatch(catalogHazards::contains)
+                                && (StrUtil.isBlank(r.getWasteCategory()) || r.getWasteCategory().equals("ALL"));
+                    })
+                    .sorted(Comparator.comparingInt(r -> r.getPriority() != null ? r.getPriority() : 99))
+                    .collect(Collectors.toList());
+            if (CollUtil.isNotEmpty(tier3)) {
+                log.debug("包装推荐命中Tier3(危险特性): hazardCode={}, rules={}", catalogHazard, tier3.size());
+                return tier3;
+            }
+        }
+
+        List<WastePackagingRule> tier4 = allRules.stream()
+                .filter(r -> "ALL".equals(r.getWasteCategory()) && StrUtil.isBlank(r.getHazardCode()))
+                .sorted(Comparator.comparingInt(r -> r.getPriority() != null ? r.getPriority() : 99))
+                .collect(Collectors.toList());
+        if (CollUtil.isNotEmpty(tier4)) {
+            log.debug("包装推荐命中Tier4(通用ALL): rules={}", tier4.size());
+            return tier4;
+        }
+
+        return Collections.emptyList();
+    }
+
+    private Set<String> parseCategories(String categoryStr) {
+        if (StrUtil.isBlank(categoryStr)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(categoryStr.split("[,，/|]"))
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toSet());
+    }
+
+    private Set<String> parseHazards(String hazardStr) {
+        if (StrUtil.isBlank(hazardStr)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(hazardStr.split("[,/|]"))
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .map(String::toUpperCase)
+                .collect(Collectors.toSet());
     }
 
     private WasteCatalog findCatalog(String wasteCode, Long enterpriseId) {
@@ -218,29 +447,6 @@ public class WasteSmartServiceImpl implements WasteSmartService {
         wrapper.eq(WasteCatalog::getStatus, 1);
         wrapper.last("LIMIT 1");
         return wasteCatalogMapper.selectOne(wrapper);
-    }
-
-    private List<WastePackagingRule> findMatchedRules(WasteCatalog catalog) {
-        if (catalog == null) {
-            return Collections.emptyList();
-        }
-        LambdaQueryWrapper<WastePackagingRule> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(WastePackagingRule::getStatus, 1);
-        wrapper.and(w -> {
-            w.eq(WastePackagingRule::getWasteCategory, catalog.getWasteCategory())
-                    .or()
-                    .and(w2 -> {
-                        if (StrUtil.isNotBlank(catalog.getHazardCode())) {
-                            w2.like(WastePackagingRule::getHazardCode, catalog.getHazardCode());
-                        } else {
-                            w2.isNotNull(WastePackagingRule::getId).eq(WastePackagingRule::getId, -1L);
-                        }
-                    })
-                    .or()
-                    .eq(WastePackagingRule::getWasteCategory, "ALL");
-        });
-        wrapper.orderByAsc(WastePackagingRule::getPriority);
-        return packagingRuleMapper.selectList(wrapper);
     }
 
     private List<WastePackagingRule> getDefaultRules(WasteCatalog catalog) {
@@ -355,37 +561,70 @@ public class WasteSmartServiceImpl implements WasteSmartService {
             CompatibilityCheckDTO.WasteItem enriched = new CompatibilityCheckDTO.WasteItem();
             enriched.setWasteCode(item.getWasteCode());
             enriched.setWasteName(item.getWasteName());
+            enriched.setWasteCategory(item.getWasteCategory());
             enriched.setWeight(item.getWeight());
             enriched.setBatchNo(item.getBatchNo());
 
-            if (StrUtil.isBlank(enriched.getWasteName()) || StrUtil.isBlank(enriched.getWasteCategory())) {
-                WasteCatalog catalog = findCatalog(item.getWasteCode(), enterpriseId);
-                if (catalog != null) {
-                    if (StrUtil.isBlank(enriched.getWasteName())) {
-                        enriched.setWasteName(catalog.getWasteName());
-                    }
+            WasteCatalog catalog = findCatalog(item.getWasteCode(), enterpriseId);
+            if (catalog != null) {
+                if (StrUtil.isBlank(enriched.getWasteName())) {
+                    enriched.setWasteName(catalog.getWasteName());
+                }
+                if (StrUtil.isBlank(enriched.getWasteCategory())) {
                     enriched.setWasteCategory(catalog.getWasteCategory());
                 }
             }
+
+            String hw = resolveHwCategory(item.getWasteCode(), catalog);
+            enriched.setHwCategory(hw);
+
             result.add(enriched);
         }
         return result;
     }
 
-    private List<WasteIncompatibility> findIncompatibilityRules(CompatibilityCheckDTO.WasteItem a, CompatibilityCheckDTO.WasteItem b) {
+    private List<WasteIncompatibility> findIncompatibilityRules(String hwCategoryA, String wasteCodeA,
+                                                                  String hwCategoryB, String wasteCodeB) {
         LambdaQueryWrapper<WasteIncompatibility> wrapper = new LambdaQueryWrapper<>();
-        wrapper.and(w -> w
-                .and(w1 -> w1.eq(WasteIncompatibility::getWasteCodeA, a.getWasteCode()).eq(WasteIncompatibility::getWasteCodeB, b.getWasteCode()))
-                .or(w2 -> w2.eq(WasteIncompatibility::getWasteCodeA, b.getWasteCode()).eq(WasteIncompatibility::getWasteCodeB, a.getWasteCode()))
-        );
-        if (StrUtil.isNotBlank(a.getWasteCategory()) && StrUtil.isNotBlank(b.getWasteCategory())) {
-            wrapper.or(w -> w
-                    .and(w1 -> w1.eq(WasteIncompatibility::getWasteCategoryA, a.getWasteCategory()).eq(WasteIncompatibility::getWasteCategoryB, b.getWasteCategory()))
-                    .or(w2 -> w2.eq(WasteIncompatibility::getWasteCategoryA, b.getWasteCategory()).eq(WasteIncompatibility::getWasteCategoryB, a.getWasteCategory()))
-            );
-        }
         wrapper.eq(WasteIncompatibility::getStatus, 1);
-        return incompatibilityMapper.selectList(wrapper);
+        wrapper.and(w -> {
+            if (StrUtil.isNotBlank(wasteCodeA) && StrUtil.isNotBlank(wasteCodeB)) {
+                w.and(w1 -> w1.eq(WasteIncompatibility::getWasteCodeA, wasteCodeA)
+                        .eq(WasteIncompatibility::getWasteCodeB, wasteCodeB));
+                w.or(w2 -> w2.eq(WasteIncompatibility::getWasteCodeA, wasteCodeB)
+                        .eq(WasteIncompatibility::getWasteCodeB, wasteCodeA));
+            }
+            if (StrUtil.isNotBlank(hwCategoryA) && StrUtil.isNotBlank(hwCategoryB)) {
+                w.or(w3 -> w3.like(WasteIncompatibility::getWasteCategoryA, hwCategoryA)
+                        .like(WasteIncompatibility::getWasteCategoryB, hwCategoryB));
+                w.or(w4 -> w4.like(WasteIncompatibility::getWasteCategoryA, hwCategoryB)
+                        .like(WasteIncompatibility::getWasteCategoryB, hwCategoryA));
+            }
+        });
+
+        List<WasteIncompatibility> candidates = incompatibilityMapper.selectList(wrapper);
+        if (CollUtil.isEmpty(candidates)) {
+            return Collections.emptyList();
+        }
+
+        return candidates.stream().filter(rule -> {
+            boolean codeMatch = matchCodeOrCategory(rule.getWasteCodeA(), rule.getWasteCategoryA(), wasteCodeA, hwCategoryA)
+                    && matchCodeOrCategory(rule.getWasteCodeB(), rule.getWasteCategoryB(), wasteCodeB, hwCategoryB);
+            boolean reverseCodeMatch = matchCodeOrCategory(rule.getWasteCodeA(), rule.getWasteCategoryA(), wasteCodeB, hwCategoryB)
+                    && matchCodeOrCategory(rule.getWasteCodeB(), rule.getWasteCategoryB(), wasteCodeA, hwCategoryA);
+            return codeMatch || reverseCodeMatch;
+        }).collect(Collectors.toList());
+    }
+
+    private boolean matchCodeOrCategory(String ruleCode, String ruleCategory, String itemCode, String itemHwCategory) {
+        if (StrUtil.isNotBlank(ruleCode) && ruleCode.equals(itemCode)) {
+            return true;
+        }
+        if (StrUtil.isNotBlank(ruleCategory) && StrUtil.isNotBlank(itemHwCategory)) {
+            Set<String> cats = parseCategories(ruleCategory);
+            return cats.contains(itemHwCategory);
+        }
+        return false;
     }
 
     private CompatibilityCheckDTO.IncompatibilityDetail buildIncompatibilityDetail(
@@ -393,10 +632,10 @@ public class WasteSmartServiceImpl implements WasteSmartService {
             CompatibilityCheckDTO.WasteItem b,
             WasteIncompatibility rule) {
         CompatibilityCheckDTO.IncompatibilityDetail detail = new CompatibilityCheckDTO.IncompatibilityDetail();
-        detail.setWasteCodeA(rule.getWasteCodeA() != null ? rule.getWasteCodeA() : a.getWasteCode());
-        detail.setWasteNameA(rule.getWasteNameA() != null ? rule.getWasteNameA() : a.getWasteName());
-        detail.setWasteCodeB(rule.getWasteCodeB() != null ? rule.getWasteCodeB() : b.getWasteCode());
-        detail.setWasteNameB(rule.getWasteNameB() != null ? rule.getWasteNameB() : b.getWasteName());
+        detail.setWasteCodeA(a.getWasteCode());
+        detail.setWasteNameA(a.getWasteName());
+        detail.setWasteCodeB(b.getWasteCode());
+        detail.setWasteNameB(b.getWasteName());
         detail.setIncompatibilityLevel(rule.getIncompatibilityLevel());
         detail.setIncompatibilityLevelLabel(getLevelLabel(rule.getIncompatibilityLevel()));
         detail.setReactionType(rule.getReactionType());
