@@ -399,15 +399,15 @@ public class WasteMqConsumer {
             record.setSyncTime(LocalDateTime.now());
             wasteInRecordMapper.updateById(record);
 
-            boolean success = nationalPlatformService.reportWasteIn(record);
+            boolean success = nationalPlatformService.reportWasteInIot(record);
             if (success) {
                 record.setSyncStatus(1);
                 record.setSyncFailReason(null);
-                log.info("【异步上报】入库记录上报成功, inNo={}", record.getInNo());
+                log.info("【异步上报】入库记录IoT上报成功, inNo={}", record.getInNo());
             } else {
                 record.setSyncStatus(2);
-                record.setSyncFailReason("国家平台上报失败");
-                log.warn("【异步上报】入库记录上报失败, inNo={}", record.getInNo());
+                record.setSyncFailReason("国家平台IoT上报失败");
+                log.warn("【异步上报】入库记录IoT上报失败, inNo={}", record.getInNo());
             }
             wasteInRecordMapper.updateById(record);
             log.info("【异步上报】入库记录上报处理完成, recordId={}, success={}", record.getId(), success);
@@ -461,15 +461,15 @@ public class WasteMqConsumer {
             record.setSyncTime(LocalDateTime.now());
             wasteOutRecordMapper.updateById(record);
 
-            boolean success = nationalPlatformService.reportWasteOut(record);
+            boolean success = nationalPlatformService.reportWasteOutIot(record);
             if (success) {
                 record.setSyncStatus(1);
                 record.setSyncFailReason(null);
-                log.info("【异步上报】出库记录上报成功, outNo={}", record.getOutNo());
+                log.info("【异步上报】出库记录IoT上报成功, outNo={}", record.getOutNo());
             } else {
                 record.setSyncStatus(2);
-                record.setSyncFailReason("国家平台上报失败");
-                log.warn("【异步上报】出库记录上报失败, outNo={}", record.getOutNo());
+                record.setSyncFailReason("国家平台IoT上报失败");
+                log.warn("【异步上报】出库记录IoT上报失败, outNo={}", record.getOutNo());
             }
             wasteOutRecordMapper.updateById(record);
             log.info("【异步上报】出库记录上报处理完成, recordId={}, success={}", record.getId(), success);
@@ -520,7 +520,7 @@ public class WasteMqConsumer {
             order.setReportTime(LocalDateTime.now());
             wasteTransferOrderMapper.updateById(order);
 
-            boolean success = nationalPlatformService.reportTransferOrder(order);
+            boolean success = nationalPlatformService.reportElectronicManifest(order);
             if (success) {
                 order.setReportStatus(1);
                 order.setReportTime(LocalDateTime.now());
@@ -528,14 +528,14 @@ public class WasteMqConsumer {
                     order.setNationalOrderNo(nationalPlatformService.getNationalPlatformBizNo(order.getOrderNo()));
                 }
                 order.setSyncFailReason(null);
-                log.info("【异步上报】转移联单上报成功, orderNo={}", order.getOrderNo());
+                log.info("【异步上报】电子联单上报成功, orderNo={}", order.getOrderNo());
             } else {
                 order.setReportStatus(2);
-                order.setSyncFailReason("国家平台上报失败");
-                log.warn("【异步上报】转移联单上报失败, orderNo={}", order.getOrderNo());
+                order.setSyncFailReason("电子联单上报失败");
+                log.warn("【异步上报】电子联单上报失败, orderNo={}", order.getOrderNo());
             }
             wasteTransferOrderMapper.updateById(order);
-            log.info("【异步上报】转移联单上报处理完成, orderId={}, success={}", order.getId(), success);
+            log.info("【异步上报】电子联单上报处理完成, orderId={}, success={}", order.getId(), success);
         } catch (Exception e) {
             log.error("【异步上报】转移联单上报异常, orderId={}", order.getId(), e);
             order.setReportStatus(2);
