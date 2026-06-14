@@ -104,12 +104,29 @@ waste:
   sync-batch-size: 100
   national-platform:
     url: https://api.ep.gov.cn/waste
-    app-id: 
-    app-secret: 
-    mock-enabled: true
+    app-id: EP_APP_20240001
+    app-secret: a1b2c3d4e5f678901234567890abcdef
+    mock-enabled: false
     connection-timeout: 10000
     read-timeout: 30000
-    retry-times: 3 
+    retry-times: 3
+
+# 极光推送配置
+push:
+  jpush:
+    app-key: jpush_app_key_20240001
+    master-secret: jpush_master_secret_20240001abcdef
+    url: https://api.jpush.cn/v3/push
+    mock-enabled: false
+
+# 短信网关配置
+sms:
+  aliyun:
+    access-key-id: LTAI5tABCDEFGHIJKLMNOPQR
+    access-key-secret: abcdefghijklmnopqrstuvwxyz1234567890
+    sign-name: 危废智能终端
+    template-code-warning: SMS_WASTE_WARN_001
+    mock-enabled: false
 
 # 日志配置
 logging:

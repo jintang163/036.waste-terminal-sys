@@ -14,6 +14,7 @@ import com.waste.mapper.WarningRecordMapper;
 import com.waste.mapper.WasteInventoryMapper;
 import com.waste.mapper.EnterpriseInfoMapper;
 import com.waste.service.NationalPlatformService;
+import com.waste.service.PushNotificationService;
 import com.waste.service.WasteInRecordService;
 import com.waste.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -63,6 +64,9 @@ public class WasteMqConsumer {
 
     @Autowired(required = false)
     private WasteInRecordService wasteInRecordService;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
 
     @Component
     @RocketMQMessageListener(
@@ -647,10 +651,20 @@ public class WasteMqConsumer {
 
     private void pushToApp(WarningRecord warningRecord, String title, String content) {
         log.info("【APP推送】推送预警到移动端, warningNo={}, title={}", warningRecord.getWarningNo(), title);
+        boolean success = pushNotificationService.pushToApp(warningRecord, title, content);
+        if (!success) {
+            throw new RuntimeException("APP推送失败");
+        }
+        log.info("【APP推送】推送成功, warningNo={}", warningRecord.getWarningNo());
     }
 
     private void pushSms(WarningRecord warningRecord, String title, String content) {
         log.info("【短信推送】发送预警短信, warningNo={}, title={}", warningRecord.getWarningNo(), title);
+        boolean success = pushNotificationService.sendWarningSms(warningRecord, title, content);
+        if (!success) {
+            throw new RuntimeException("短信推送失败");
+        }
+        log.info("【短信推送】发送成功, warningNo={}", warningRecord.getWarningNo());
     }
 
     private void updateInventoryAfterOut(WasteOutRecord record) {

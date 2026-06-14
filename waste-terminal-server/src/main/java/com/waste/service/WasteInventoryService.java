@@ -30,4 +30,6 @@ public interface WasteInventoryService {
     BigDecimal getCapacityRate(Long enterpriseId);
 
     List<WasteInventory> listForCache(Long enterpriseId);
+
+    Map<String, Object> getHomeDashboard(Long enterpriseId);
 }

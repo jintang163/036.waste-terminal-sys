@@ -27,6 +27,7 @@ import com.waste.mapper.SyncRecordMapper;
 import com.waste.mapper.WasteCatalogMapper;
 import com.waste.mapper.WasteContainerMapper;
 import com.waste.mapper.WasteInRecordMapper;
+import com.waste.mapper.WasteInventoryMapper;
 import com.waste.mapper.WasteOutRecordMapper;
 import com.waste.mapper.WasteTransferOrderMapper;
 import com.waste.mapper.InventoryCheckMapper;
@@ -90,6 +91,9 @@ public class SyncController {
 
     @Autowired
     private WasteInRecordMapper wasteInRecordMapper;
+
+    @Autowired
+    private WasteInventoryMapper wasteInventoryMapper;
 
     @Autowired
     private WasteOutRecordMapper wasteOutRecordMapper;
@@ -291,12 +295,28 @@ public class SyncController {
 
     @PostMapping("/pull/inventory")
     @RequiresLogin
-    public Result<List<WasteInventory>> pullInventory(@RequestBody(required = false) Map<String, Object> params) {
+    public Result<Map<String, Object>> pullInventory(@RequestBody(required = false) Map<String, Object> params) {
         Long enterpriseId = UserContext.getCurrentEnterpriseId();
         if (enterpriseId == null) {
             enterpriseId = 1L;
         }
-        return Result.success(pullInventoryData(enterpriseId, null));
+        LocalDateTime lastSyncTime = getlastSyncTimeFromParams(params);
+        List<WasteInventory> inventoryList;
+        if (lastSyncTime != null) {
+            inventoryList = pullInventoryDataIncremental(enterpriseId, lastSyncTime);
+        } else {
+            inventoryList = pullInventoryData(enterpriseId, null);
+        }
+        Map<String, Object> statistics = wasteInventoryService.getStatistics(enterpriseId);
+        BigDecimal capacityRate = wasteInventoryService.getCapacityRate(enterpriseId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", inventoryList);
+        result.put("statistics", statistics);
+        result.put("capacityRate", capacityRate);
+        result.put("syncTime", LocalDateTime.now());
+        result.put("incremental", lastSyncTime != null);
+        return Result.success(result);
     }
 
     @PostMapping("/pull/warning")
@@ -540,6 +560,17 @@ public class SyncController {
 
     private List<WasteInventory> pullInventoryData(Long enterpriseId, LocalDateTime lastSyncTime) {
         return wasteInventoryService.listForCache(enterpriseId);
+    }
+
+    private List<WasteInventory> pullInventoryDataIncremental(Long enterpriseId, LocalDateTime lastSyncTime) {
+        LambdaQueryWrapper<WasteInventory> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(WasteInventory::getEnterpriseId, enterpriseId);
+        wrapper.eq(WasteInventory::getStatus, 1);
+        if (lastSyncTime != null) {
+            wrapper.ge(WasteInventory::getUpdateTime, lastSyncTime);
+        }
+        wrapper.orderByAsc(WasteInventory::getContainerCode);
+        return wasteInventoryMapper.selectList(wrapper);
     }
 
     private List<WarningRecord> pullWarningData(Long enterpriseId, LocalDateTime lastSyncTime) {

@@ -97,4 +97,13 @@ public class WasteInventoryController {
         BigDecimal capacityRate = wasteInventoryService.getCapacityRate(enterpriseId);
         return Result.success(capacityRate);
     }
+
+    @GetMapping("/home/dashboard")
+    public Result<Map<String, Object>> getHomeDashboard(@RequestParam(required = false) Long enterpriseId) {
+        if (enterpriseId == null) {
+            enterpriseId = 1L;
+        }
+        Map<String, Object> dashboard = wasteInventoryService.getHomeDashboard(enterpriseId);
+        return Result.success(dashboard);
+    }
 }

@@ -12,6 +12,7 @@ import com.waste.entity.WasteInventory;
 import com.waste.mapper.WasteContainerMapper;
 import com.waste.mapper.WasteInventoryMapper;
 import com.waste.service.WasteInventoryService;
+import com.waste.service.WarningRecordService;
 import com.waste.vo.WasteInventoryVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,9 @@ public class WasteInventoryServiceImpl implements WasteInventoryService {
 
     @Autowired
     private WasteContainerMapper wasteContainerMapper;
+
+    @Autowired
+    private WarningRecordService warningRecordService;
 
     @Override
     public IPage<WasteInventoryVO> page(PageQuery pageQuery, WasteInventory wasteInventory, Long enterpriseId) {
@@ -378,5 +382,27 @@ public class WasteInventoryServiceImpl implements WasteInventoryService {
             }
         }
         return wrapper;
+    }
+
+    @Override
+    public Map<String, Object> getHomeDashboard(Long enterpriseId) {
+        Map<String, Object> result = new HashMap<>();
+
+        Map<String, Object> inventoryStats = getStatistics(enterpriseId);
+        result.putAll(inventoryStats);
+
+        BigDecimal capacityRate = getCapacityRate(enterpriseId);
+        result.put("capacityRate", capacityRate);
+
+        Map<String, Object> warningStats = warningRecordService.getStatistics(enterpriseId);
+        result.put("warningStats", warningStats);
+
+        List<Map<String, Object>> wasteCodeStats = statByWasteCode(enterpriseId);
+        result.put("wasteCodeStats", wasteCodeStats);
+
+        result.put("syncTime", LocalDate.now());
+        result.put("enterpriseId", enterpriseId);
+
+        return result;
     }
 }
