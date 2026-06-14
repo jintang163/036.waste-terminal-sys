@@ -1,0 +1,277 @@
+class DatabaseTables {
+  DatabaseTables._();
+
+  static const int dbVersion = 1;
+  static const String dbName = 'waste_terminal.db';
+
+  static const String tableWasteCatalog = 'waste_catalog';
+  static const String tableWasteContainer = 'waste_container';
+  static const String tableWasteInRecord = 'waste_in_record';
+  static const String tableWasteInventory = 'waste_inventory';
+  static const String tableWasteOutRecord = 'waste_out_record';
+  static const String tableTransferOrder = 'transfer_order';
+  static const String tableInventoryCheck = 'inventory_check';
+  static const String tableInventoryCheckDetail = 'inventory_check_detail';
+  static const String tableWarningRecord = 'warning_record';
+  static const String tableSyncLog = 'sync_log';
+
+  static const String createTableWasteCatalog = '''
+    CREATE TABLE $tableWasteCatalog (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      catalog_id TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      waste_type TEXT,
+      hazard_category TEXT,
+      unit TEXT,
+      description TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableWasteContainer = '''
+    CREATE TABLE $tableWasteContainer (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      container_id TEXT,
+      container_code TEXT,
+      container_name TEXT,
+      container_type TEXT,
+      capacity REAL,
+      unit TEXT,
+      status INTEGER DEFAULT 0,
+      location TEXT,
+      rfid_code TEXT,
+      qr_code TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableWasteInRecord = '''
+    CREATE TABLE $tableWasteInRecord (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      offline_id TEXT,
+      record_id TEXT,
+      record_no TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      container_id TEXT,
+      container_code TEXT,
+      quantity REAL,
+      unit TEXT,
+      weight REAL,
+      weight_unit TEXT,
+      source TEXT,
+      operator TEXT,
+      operator_id TEXT,
+      warehouse TEXT,
+      warehouse_id TEXT,
+      remark TEXT,
+      in_time TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableWasteInventory = '''
+    CREATE TABLE $tableWasteInventory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_id TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      container_id TEXT,
+      container_code TEXT,
+      quantity REAL,
+      unit TEXT,
+      weight REAL,
+      weight_unit TEXT,
+      warehouse TEXT,
+      warehouse_id TEXT,
+      location TEXT,
+      in_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableWasteOutRecord = '''
+    CREATE TABLE $tableWasteOutRecord (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      offline_id TEXT,
+      record_id TEXT,
+      record_no TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      container_id TEXT,
+      container_code TEXT,
+      quantity REAL,
+      unit TEXT,
+      weight REAL,
+      weight_unit TEXT,
+      receiver TEXT,
+      receiver_id TEXT,
+      operator TEXT,
+      operator_id TEXT,
+      warehouse TEXT,
+      warehouse_id TEXT,
+      remark TEXT,
+      out_time TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableTransferOrder = '''
+    CREATE TABLE $tableTransferOrder (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      offline_id TEXT,
+      order_id TEXT,
+      order_no TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      quantity REAL,
+      unit TEXT,
+      weight REAL,
+      weight_unit TEXT,
+      transferor TEXT,
+      transferor_id TEXT,
+      transferee TEXT,
+      transferee_id TEXT,
+      carrier TEXT,
+      carrier_id TEXT,
+      driver TEXT,
+      vehicle_no TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      status INTEGER DEFAULT 0,
+      remark TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableInventoryCheck = '''
+    CREATE TABLE $tableInventoryCheck (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      offline_id TEXT,
+      check_id TEXT,
+      check_no TEXT,
+      check_type TEXT,
+      check_time TEXT,
+      checker TEXT,
+      checker_id TEXT,
+      warehouse TEXT,
+      warehouse_id TEXT,
+      status INTEGER DEFAULT 0,
+      remark TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableInventoryCheckDetail = '''
+    CREATE TABLE $tableInventoryCheckDetail (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      detail_id TEXT,
+      check_id TEXT,
+      check_offline_id TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      container_id TEXT,
+      container_code TEXT,
+      system_quantity REAL,
+      system_weight REAL,
+      check_quantity REAL,
+      check_weight REAL,
+      diff_quantity REAL,
+      diff_weight REAL,
+      unit TEXT,
+      weight_unit TEXT,
+      remark TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableWarningRecord = '''
+    CREATE TABLE $tableWarningRecord (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      warning_id TEXT,
+      warning_type TEXT,
+      warning_level INTEGER,
+      warning_title TEXT,
+      warning_content TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      container_id TEXT,
+      container_code TEXT,
+      threshold REAL,
+      current_value REAL,
+      unit TEXT,
+      status INTEGER DEFAULT 0,
+      handle_time TEXT,
+      handler TEXT,
+      handler_id TEXT,
+      handle_remark TEXT,
+      warning_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableSyncLog = '''
+    CREATE TABLE $tableSyncLog (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      log_id TEXT,
+      sync_type TEXT,
+      sync_module TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_start_time TEXT,
+      sync_end_time TEXT,
+      total_count INTEGER DEFAULT 0,
+      success_count INTEGER DEFAULT 0,
+      fail_count INTEGER DEFAULT 0,
+      error_msg TEXT,
+      create_time TEXT
+    )
+  ''';
+
+  static List<String> getAllCreateTableSql() {
+    return [
+      createTableWasteCatalog,
+      createTableWasteContainer,
+      createTableWasteInRecord,
+      createTableWasteInventory,
+      createTableWasteOutRecord,
+      createTableTransferOrder,
+      createTableInventoryCheck,
+      createTableInventoryCheckDetail,
+      createTableWarningRecord,
+      createTableSyncLog,
+    ];
+  }
+}

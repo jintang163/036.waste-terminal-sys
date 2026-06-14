@@ -1,0 +1,583 @@
+import 'dart:async';
+import 'package:logger/logger.dart';
+import 'package:connectivity_plus/connectivity.dart';
+import 'package:uuid/uuid.dart';
+
+import '../db/sync_log_db.dart';
+import '../db/waste_catalog_db.dart';
+import '../db/waste_container_db.dart';
+import '../db/waste_in_record_db.dart';
+import '../db/waste_inventory_db.dart';
+import '../db/waste_out_record_db.dart';
+import '../db/transfer_order_db.dart';
+import '../db/inventory_check_db.dart';
+import '../db/warning_record_db.dart';
+
+import 'api_service.dart';
+
+enum SyncStatus { idle, syncing, success, failed }
+enum SyncType { full, incremental }
+enum SyncModule {
+  wasteCatalog,
+  wasteContainer,
+  wasteInRecord,
+  wasteOutRecord,
+  transferOrder,
+  inventory,
+  inventoryCheck,
+  warning,
+}
+
+class SyncService {
+  static final SyncService _instance = SyncService._internal();
+  factory SyncService() => _instance;
+
+  final ApiService _apiService = ApiService();
+  final Logger _logger = Logger();
+  final Uuid _uuid = const Uuid();
+
+  final WasteCatalogDb _wasteCatalogDb = WasteCatalogDb();
+  final WasteContainerDb _wasteContainerDb = WasteContainerDb();
+  final WasteInRecordDb _wasteInRecordDb = WasteInRecordDb();
+  final WasteInventoryDb _wasteInventoryDb = WasteInventoryDb();
+  final WasteOutRecordDb _wasteOutRecordDb = WasteOutRecordDb();
+  final TransferOrderDb _transferOrderDb = TransferOrderDb();
+  final InventoryCheckDb _inventoryCheckDb = InventoryCheckDb();
+  final WarningRecordDb _warningRecordDb = WarningRecordDb();
+  final SyncLogDb _syncLogDb = SyncLogDb();
+
+  SyncStatus _syncStatus = SyncStatus.idle;
+  SyncType? _currentSyncType;
+  double _progress = 0.0;
+  String? _currentModule;
+  int _totalCount = 0;
+  int _completedCount = 0;
+
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  bool _autoSyncEnabled = true;
+
+  final StreamController<SyncStatus> _statusController = StreamController<SyncStatus>.broadcast();
+  final StreamController<double> _progressController = StreamController<double>.broadcast();
+  final StreamController<String> _moduleController = StreamController<String>.broadcast();
+
+  SyncService._internal();
+
+  SyncStatus get syncStatus => _syncStatus;
+  double get progress => _progress;
+  String? get currentModule => _currentModule;
+  bool get isSyncing => _syncStatus == SyncStatus.syncing;
+
+  Stream<SyncStatus> get statusStream => _statusController.stream;
+  Stream<double> get progressStream => _progressController.stream;
+  Stream<String> get moduleStream => _moduleController.stream;
+
+  void init() {
+    _initConnectivityListener();
+    _logger.i('同步服务初始化完成');
+  }
+
+  void _initConnectivityListener() {
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
+      (ConnectivityResult result) {
+        if (result != ConnectivityResult.none && _autoSyncEnabled && !isSyncing) {
+          _logger.d('网络已连接，触发自动同步');
+          incrementalSync();
+        }
+      },
+    );
+  }
+
+  void setAutoSyncEnabled(bool enabled) {
+    _autoSyncEnabled = enabled;
+    _logger.d('自动同步${enabled ? "已开启" : "已关闭"}');
+  }
+
+  Future<void> fullSync() async {
+    if (isSyncing) {
+      _logger.w('同步进行中，忽略重复请求');
+      return;
+    }
+
+    _logger.i('开始全量同步');
+    String logId = _uuid.v4();
+    DateTime startTime = DateTime.now();
+
+    try {
+      _updateStatus(SyncStatus.syncing);
+      _currentSyncType = SyncType.full;
+      _progress = 0.0;
+      _totalCount = 8;
+      _completedCount = 0;
+
+      await _syncWasteCatalog();
+      _updateProgress(1);
+
+      await _syncWasteContainer();
+      _updateProgress(2);
+
+      await _syncInventory();
+      _updateProgress(3);
+
+      await _syncWarning();
+      _updateProgress(4);
+
+      await _uploadWasteInRecords();
+      _updateProgress(5);
+
+      await _uploadWasteOutRecords();
+      _updateProgress(6);
+
+      await _uploadTransferOrders();
+      _updateProgress(7);
+
+      await _uploadInventoryChecks();
+      _updateProgress(8);
+
+      _updateStatus(SyncStatus.success);
+
+      await _syncLogDb.insert({
+        'log_id': logId,
+        'sync_type': 'full',
+        'sync_module': 'all',
+        'sync_status': 1,
+        'sync_start_time': startTime.toIso8601String(),
+        'sync_end_time': DateTime.now().toIso8601String(),
+        'total_count': _totalCount,
+        'success_count': _completedCount,
+        'fail_count': 0,
+        'create_time': DateTime.now().toIso8601String(),
+      });
+
+      _logger.i('全量同步完成');
+    } catch (e) {
+      _logger.e('全量同步失败: $e');
+      _updateStatus(SyncStatus.failed);
+
+      await _syncLogDb.insert({
+        'log_id': logId,
+        'sync_type': 'full',
+        'sync_module': 'all',
+        'sync_status': 0,
+        'sync_start_time': startTime.toIso8601String(),
+        'sync_end_time': DateTime.now().toIso8601String(),
+        'total_count': _totalCount,
+        'success_count': _completedCount,
+        'fail_count': _totalCount - _completedCount,
+        'error_msg': e.toString(),
+        'create_time': DateTime.now().toIso8601String(),
+      });
+
+      rethrow;
+    }
+  }
+
+  Future<void> incrementalSync() async {
+    if (isSyncing) {
+      _logger.w('同步进行中，忽略重复请求');
+      return;
+    }
+
+    _logger.i('开始增量同步');
+    String logId = _uuid.v4();
+    DateTime startTime = DateTime.now();
+
+    try {
+      _updateStatus(SyncStatus.syncing);
+      _currentSyncType = SyncType.incremental;
+      _progress = 0.0;
+      _totalCount = 8;
+      _completedCount = 0;
+
+      await _syncWasteCatalog();
+      _updateProgress(1);
+
+      await _syncWasteContainer();
+      _updateProgress(2);
+
+      await _syncInventory();
+      _updateProgress(3);
+
+      await _syncWarning();
+      _updateProgress(4);
+
+      await _uploadWasteInRecords();
+      _updateProgress(5);
+
+      await _uploadWasteOutRecords();
+      _updateProgress(6);
+
+      await _uploadTransferOrders();
+      _updateProgress(7);
+
+      await _uploadInventoryChecks();
+      _updateProgress(8);
+
+      _updateStatus(SyncStatus.success);
+
+      await _syncLogDb.insert({
+        'log_id': logId,
+        'sync_type': 'incremental',
+        'sync_module': 'all',
+        'sync_status': 1,
+        'sync_start_time': startTime.toIso8601String(),
+        'sync_end_time': DateTime.now().toIso8601String(),
+        'total_count': _totalCount,
+        'success_count': _completedCount,
+        'fail_count': 0,
+        'create_time': DateTime.now().toIso8601String(),
+      });
+
+      _logger.i('增量同步完成');
+    } catch (e) {
+      _logger.e('增量同步失败: $e');
+      _updateStatus(SyncStatus.failed);
+
+      await _syncLogDb.insert({
+        'log_id': logId,
+        'sync_type': 'incremental',
+        'sync_module': 'all',
+        'sync_status': 0,
+        'sync_start_time': startTime.toIso8601String(),
+        'sync_end_time': DateTime.now().toIso8601String(),
+        'total_count': _totalCount,
+        'success_count': _completedCount,
+        'fail_count': _totalCount - _completedCount,
+        'error_msg': e.toString(),
+        'create_time': DateTime.now().toIso8601String(),
+      });
+    }
+  }
+
+  Future<void> _syncWasteCatalog() async {
+    _currentModule = '危废名录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过危废名录同步');
+        return;
+      }
+
+      final response = await _apiService.get('/waste-catalog/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> catalogList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _wasteCatalogDb.replaceAll(catalogList);
+      _logger.d('危废名录同步完成，数量: ${catalogList.length}');
+    } catch (e) {
+      _logger.w('危废名录同步失败: $e');
+    }
+  }
+
+  Future<void> _syncWasteContainer() async {
+    _currentModule = '容器信息';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过容器同步');
+        return;
+      }
+
+      final response = await _apiService.get('/waste-container/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> containerList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _wasteContainerDb.replaceAll(containerList);
+      _logger.d('容器信息同步完成，数量: ${containerList.length}');
+    } catch (e) {
+      _logger.w('容器信息同步失败: $e');
+    }
+  }
+
+  Future<void> _syncInventory() async {
+    _currentModule = '库存数据';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过库存同步');
+        return;
+      }
+
+      final response = await _apiService.get('/inventory/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> inventoryList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _wasteInventoryDb.replaceAll(inventoryList);
+      _logger.d('库存数据同步完成，数量: ${inventoryList.length}');
+    } catch (e) {
+      _logger.w('库存数据同步失败: $e');
+    }
+  }
+
+  Future<void> _syncWarning() async {
+    _currentModule = '预警信息';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过预警同步');
+        return;
+      }
+
+      final response = await _apiService.get('/warning/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> warningList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _warningRecordDb.replaceAll(warningList);
+      _logger.d('预警信息同步完成，数量: ${warningList.length}');
+    } catch (e) {
+      _logger.w('预警信息同步失败: $e');
+    }
+  }
+
+  Future<void> _uploadWasteInRecords() async {
+    _currentModule = '入库记录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过入库记录上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _wasteInRecordDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步入库记录');
+        return;
+      }
+
+      _logger.d('待同步入库记录数量: ${unsynced.length}');
+
+      for (var record in unsynced) {
+        try {
+          final response = await _apiService.post(
+            '/waste-in/add',
+            data: record,
+          );
+
+          String? recordId = response.data['data']?['recordId'];
+          await _wasteInRecordDb.updateSyncStatus(
+            record['offline_id'],
+            1,
+            syncTime: DateTime.now().toIso8601String(),
+            recordId: recordId,
+          );
+        } catch (e) {
+          _logger.w('上传入库记录失败: ${record['offline_id']}, $e');
+        }
+      }
+
+      _logger.d('入库记录上传完成');
+    } catch (e) {
+      _logger.w('入库记录上传失败: $e');
+    }
+  }
+
+  Future<void> _uploadWasteOutRecords() async {
+    _currentModule = '出库记录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过出库记录上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _wasteOutRecordDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步出库记录');
+        return;
+      }
+
+      _logger.d('待同步出库记录数量: ${unsynced.length}');
+
+      for (var record in unsynced) {
+        try {
+          final response = await _apiService.post(
+            '/waste-out/add',
+            data: record,
+          );
+
+          String? recordId = response.data['data']?['recordId'];
+          await _wasteOutRecordDb.updateSyncStatus(
+            record['offline_id'],
+            1,
+            syncTime: DateTime.now().toIso8601String(),
+            recordId: recordId,
+          );
+        } catch (e) {
+          _logger.w('上传出库记录失败: ${record['offline_id']}, $e');
+        }
+      }
+
+      _logger.d('出库记录上传完成');
+    } catch (e) {
+      _logger.w('出库记录上传失败: $e');
+    }
+  }
+
+  Future<void> _uploadTransferOrders() async {
+    _currentModule = '转移联单';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过转移联单上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _transferOrderDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步转移联单');
+        return;
+      }
+
+      _logger.d('待同步转移联单数量: ${unsynced.length}');
+
+      for (var order in unsynced) {
+        try {
+          final response = await _apiService.post(
+            '/transfer-order/add',
+            data: order,
+          );
+
+          String? orderId = response.data['data']?['orderId'];
+          await _transferOrderDb.updateSyncStatus(
+            order['offline_id'],
+            1,
+            syncTime: DateTime.now().toIso8601String(),
+            orderId: orderId,
+          );
+        } catch (e) {
+          _logger.w('上传转移联单失败: ${order['offline_id']}, $e');
+        }
+      }
+
+      _logger.d('转移联单上传完成');
+    } catch (e) {
+      _logger.w('转移联单上传失败: $e');
+    }
+  }
+
+  Future<void> _uploadInventoryChecks() async {
+    _currentModule = '盘点记录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过盘点记录上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _inventoryCheckDb.queryUnsyncedChecks();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步盘点记录');
+        return;
+      }
+
+      _logger.d('待同步盘点记录数量: ${unsynced.length}');
+
+      for (var check in unsynced) {
+        try {
+          String checkOfflineId = check['offline_id'];
+          List<Map<String, dynamic>> details =
+              await _inventoryCheckDb.queryDetailsByCheckOfflineId(checkOfflineId);
+
+          final response = await _apiService.post(
+            '/inventory-check/add',
+            data: {
+              ...check,
+              'details': details,
+            },
+          );
+
+          String? checkId = response.data['data']?['checkId'];
+          await _inventoryCheckDb.updateCheckSyncStatus(
+            checkOfflineId,
+            1,
+            syncTime: DateTime.now().toIso8601String(),
+            checkId: checkId,
+          );
+        } catch (e) {
+          _logger.w('上传盘点记录失败: ${check['offline_id']}, $e');
+        }
+      }
+
+      _logger.d('盘点记录上传完成');
+    } catch (e) {
+      _logger.w('盘点记录上传失败: $e');
+    }
+  }
+
+  Future<int> getUnsyncedTotalCount() async {
+    int count = 0;
+    count += await _wasteInRecordDb.queryUnsyncedCount();
+    count += await _wasteOutRecordDb.queryUnsyncedCount();
+    count += await _transferOrderDb.queryUnsyncedCount();
+    count += await _inventoryCheckDb.queryUnsyncedChecksCount();
+    return count;
+  }
+
+  Future<Map<String, int>> getUnsyncedCountByModule() async {
+    return {
+      'wasteIn': await _wasteInRecordDb.queryUnsyncedCount(),
+      'wasteOut': await _wasteOutRecordDb.queryUnsyncedCount(),
+      'transferOrder': await _transferOrderDb.queryUnsyncedCount(),
+      'inventoryCheck': await _inventoryCheckDb.queryUnsyncedChecksCount(),
+    };
+  }
+
+  Future<DateTime?> getLastSyncTime() async {
+    try {
+      Map<String, dynamic>? latestLog = await _syncLogDb.getLatestSync(null);
+      if (latestLog != null) {
+        String? endTime = latestLog['sync_end_time'];
+        if (endTime != null && endTime.isNotEmpty) {
+          return DateTime.parse(endTime);
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  void _updateStatus(SyncStatus status) {
+    _syncStatus = status;
+    _statusController.add(status);
+  }
+
+  void _updateProgress(int completed) {
+    _completedCount = completed;
+    if (_totalCount > 0) {
+      _progress = completed / _totalCount;
+      _progressController.add(_progress);
+    }
+  }
+
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _statusController.close();
+    _progressController.close();
+    _moduleController.close();
+  }
+}

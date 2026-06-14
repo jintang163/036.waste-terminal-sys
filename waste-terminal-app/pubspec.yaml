@@ -1,0 +1,90 @@
+name: waste_terminal_app
+description: 危废智能终端系统移动端
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # 状态管理
+  provider: ^6.1.1
+  get: ^4.6.6
+
+  # 网络请求
+  dio: ^5.4.0
+  dio_smart_retry: ^6.0.0
+  connectivity_plus: ^5.0.2
+
+  # 本地数据库
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  path_provider: ^2.1.2
+
+  # 工具类
+  intl: ^0.19.0
+  shared_preferences: ^2.2.2
+  logger: ^2.0.2+1
+  uuid: ^4.2.1
+  decimal: ^2.3.3
+
+  # UI 组件
+  flutter_screenutil: ^5.9.0
+  flutter_easyloading: ^3.0.5
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.1
+  pull_to_refresh: ^2.0.0
+  flutter_slidable: ^3.0.1
+
+  # 扫码
+  qr_code_scanner: ^1.0.1
+  mobile_scanner: ^3.5.6
+
+  # 拍照/图片
+  image_picker: ^1.0.7
+  flutter_image_compress: ^2.1.0
+  photo_view: ^0.14.0
+  wechat_assets_picker: ^9.0.1
+
+  # 二维码生成
+  qr_flutter: ^4.1.0
+
+  # 蓝牙
+  flutter_blue_plus: ^1.31.1
+  # 蓝牙打印
+  bluetooth_print: ^4.3.0
+
+  # 位置
+  geolocator: ^11.0.0
+
+  # 权限
+  permission_handler: ^11.2.0
+
+  # 设备信息
+  device_info_plus: ^9.1.1
+
+  # 其他
+  package_info_plus: ^5.0.1
+  url_launcher: ^6.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/fonts/
+
+  fonts:
+    - family: custom
+      fonts:
+        - asset: assets/fonts/iconfont.ttf
