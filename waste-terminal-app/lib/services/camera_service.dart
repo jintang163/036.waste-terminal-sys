@@ -88,6 +88,20 @@ class CameraService {
     }
   }
 
+  Future<String?> getPreviewUrlByCode(String cameraCode) async {
+    try {
+      final response = await _apiService.get('/video/preview/$cameraCode');
+      final data = response.data['data'];
+      if (data is Map<String, dynamic>) {
+        return data['hlsUrl'] as String? ?? data['previewUrl'] as String?;
+      }
+      return data as String?;
+    } catch (e) {
+      _logger.e('通过编码获取预览地址失败: $e');
+      return null;
+    }
+  }
+
   Future<String?> getSnapshotUrl(int id) async {
     try {
       final response = await _apiService.get('/camera/$id/snapshot-url');

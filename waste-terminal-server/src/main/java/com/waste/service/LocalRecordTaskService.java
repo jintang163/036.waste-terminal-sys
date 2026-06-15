@@ -24,4 +24,9 @@ public interface LocalRecordTaskService {
 
     void createEventRecord(String cameraCode, String triggerType, String triggerId,
                            Integer preSeconds, Integer postSeconds, Long enterpriseId);
+
+    void confirmUpload(String taskId, String filePath, Long fileSize, Integer durationSeconds,
+                       String startTime, String endTime, Long enterpriseId);
+
+    LocalRecordTask getByTaskId(String taskId, Long enterpriseId);
 }

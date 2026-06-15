@@ -172,4 +172,41 @@ public class LocalRecordTaskServiceImpl implements LocalRecordTaskService {
         }
         return wrapper;
     }
+
+    @Override
+    public LocalRecordTask getByTaskId(String taskId, Long enterpriseId) {
+        LambdaQueryWrapper<LocalRecordTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(LocalRecordTask::getTaskId, taskId);
+        if (enterpriseId != null) {
+            wrapper.eq(LocalRecordTask::getEnterpriseId, enterpriseId);
+        }
+        LocalRecordTask task = localRecordTaskMapper.selectOne(wrapper);
+        if (task == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        return task;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmUpload(String taskId, String filePath, Long fileSize, Integer durationSeconds,
+                              String startTime, String endTime, Long enterpriseId) {
+        LocalRecordTask task = getByTaskId(taskId, enterpriseId);
+
+        task.setFilePath(filePath);
+        task.setFileSize(fileSize);
+        task.setDurationSeconds(durationSeconds);
+        task.setStatus(1);
+        task.setSyncStatus(1);
+        task.setSyncTime(LocalDateTime.now());
+
+        if (StrUtil.isNotBlank(startTime)) {
+            task.setStartTime(LocalDateTime.parse(startTime));
+        }
+        if (StrUtil.isNotBlank(endTime)) {
+            task.setEndTime(LocalDateTime.parse(endTime));
+        }
+
+        localRecordTaskMapper.updateById(task);
+    }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:fijkplayer/fijkplayer.dart';
 
 import '../config/app_theme.dart';
 import '../config/app_routes.dart';
@@ -30,8 +31,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   bool _isPlaying = false;
   bool _isRecording = false;
   bool _aiEnabled = false;
-  List<AiCaptureEvent> _recentEvents = [];
   bool _isLoading = true;
+  bool _isBuffering = false;
+
+  FijkPlayer? _player;
+
+  List<AiCaptureEvent> _recentEvents = [];
 
   @override
   void initState() {
@@ -88,6 +93,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       setState(() {
         _isPlaying = false;
         _isRecording = false;
+        _isBuffering = false;
       });
     } else {
       final rtspUrl = _camera?.rtspUrl;
@@ -95,12 +101,28 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         ToastUtil.showError('无可用的视频流地址');
         return;
       }
-      final success = await _videoPlayerService.connectStream(rtspUrl);
+
       setState(() {
-        _isPlaying = success;
+        _isBuffering = true;
       });
-      if (!success) {
-        ToastUtil.showError('连接视频流失败');
+
+      try {
+        final success = await _videoPlayerService.connectStream(
+          rtspUrl,
+          cameraCode: widget.cameraCode,
+        );
+        setState(() {
+          _isPlaying = success;
+          _isBuffering = false;
+        });
+        if (!success) {
+          ToastUtil.showError('连接视频流失败');
+        }
+      } catch (e) {
+        setState(() {
+          _isBuffering = false;
+        });
+        ToastUtil.showError('连接视频流失败: ${e.toString().substring(0, 30)}');
       }
     }
   }
@@ -190,7 +212,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   Widget _buildVideoArea() {
     return Container(
       width: double.infinity,
-      height: 220.h,
+      height: 240.h,
       decoration: BoxDecoration(
         color: Colors.black87,
         borderRadius: BorderRadius.circular(AppRadius.r8),
@@ -198,26 +220,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (_isPlaying)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.connected_tv,
-                    size: 40.r,
-                    color: AppTheme.successColor,
-                  ),
-                  SizedBox(height: 8.h),
-                  Text(
-                    'RTSP预览中',
-                    style: TextStyle(
-                      fontSize: 14.sp,
-                      color: AppTheme.successColor,
-                    ),
-                  ),
-                ],
-              ),
+          if (_isPlaying && _videoPlayerService.player != null)
+            FijkView(
+              player: _videoPlayerService.player!,
+              color: Colors.black87,
+              fit: FijkFit.cover,
+              fsFit: FijkFit.cover,
             )
           else
             Center(
@@ -225,19 +233,26 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.play_circle_outline,
+                    _isPlaying ? Icons.connected_tv : Icons.play_circle_outline,
                     size: 48.r,
-                    color: Colors.white54,
+                    color: _isPlaying ? AppTheme.successColor : Colors.white54,
                   ),
                   SizedBox(height: 8.h),
                   Text(
-                    'RTSP预览',
+                    _isPlaying ? 'RTSP预览中' : '点击预览按钮开始',
                     style: TextStyle(
                       fontSize: 14.sp,
-                      color: Colors.white54,
+                      color: _isPlaying ? AppTheme.successColor : Colors.white54,
                     ),
                   ),
                 ],
+              ),
+            ),
+          if (_isBuffering)
+            Container(
+              color: Colors.black26,
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.white),
               ),
             ),
           if (_isRecording)
@@ -281,6 +296,25 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                 ? StatusTag.success('在线')
                 : StatusTag.warning('离线', outlined: true),
           ),
+          if (_camera != null)
+            Positioned(
+              top: 12.h,
+              left: 12.w,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(AppRadius.r4),
+                ),
+                child: Text(
+                  _camera!.cameraCode,
+                  style: TextStyle(
+                    fontSize: 10.sp,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

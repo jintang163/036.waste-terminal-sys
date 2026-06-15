@@ -639,19 +639,62 @@ class SyncService {
       for (var record in unsynced) {
         try {
           String? filePath = record['file_path'];
-          if (filePath != null && filePath.isNotEmpty) {
-            await _apiService.uploadFile(
-              filePath,
-              bizType: 'local_record',
-              bizId: record['task_id'],
-            );
+          if (filePath == null || filePath.isEmpty) {
+            _logger.w('录像文件路径为空，跳过: ${record['task_id']}');
+            continue;
           }
 
-          await _localRecordTaskDb.updateSyncStatus(
-            record['task_id'],
-            1,
-            syncTime: DateTime.now().toIso8601String(),
+          final file = File(filePath);
+          if (!await file.exists()) {
+            _logger.w('录像文件不存在，跳过: $filePath');
+            continue;
+          }
+
+          _logger.d('上传录像文件: ${record['task_id']}');
+
+          final uploadResponse = await _apiService.uploadFile(
+            filePath,
+            bizType: 'local_record',
+            bizId: record['task_id'],
           );
+
+          if (uploadResponse == null || uploadResponse.data == null) {
+            _logger.w('录像上传返回空结果，跳过: ${record['task_id']}');
+            continue;
+          }
+
+          String? serverFilePath = uploadResponse.data['data']?['filePath'] ??
+              uploadResponse.data['data']?['url'];
+
+          bool confirmSuccess = false;
+          try {
+            final confirmResponse = await _apiService.post(
+              '/local-record/confirm-upload',
+              data: {
+                'taskId': record['task_id'],
+                'filePath': serverFilePath ?? filePath,
+                'fileSize': record['file_size'] ?? 0,
+                'durationSeconds': record['duration_seconds'] ?? 0,
+                'startTime': record['start_time'],
+                'endTime': record['end_time'],
+              },
+            );
+
+            confirmSuccess = confirmResponse.data['code'] == 200;
+          } catch (e) {
+            _logger.w('确认录像上传失败: ${record['task_id']}, $e');
+          }
+
+          if (confirmSuccess) {
+            await _localRecordTaskDb.updateSyncStatus(
+              record['task_id'],
+              1,
+              syncTime: DateTime.now().toIso8601String(),
+            );
+            _logger.d('录像上传并确认成功: ${record['task_id']}');
+          } else {
+            _logger.w('录像确认失败，保持未同步状态: ${record['task_id']}');
+          }
         } catch (e) {
           _logger.w('上传本地录像失败: ${record['task_id']}, $e');
         }

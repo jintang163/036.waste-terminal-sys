@@ -622,6 +622,12 @@ class ApiConstants {
   static const String cameraSnapshotUrl = '/camera/snapshot-url';
   static const String cameraToggleAi = '/camera/ai';
 
+  static const String videoPreview = '/video/preview';
+  static const String videoSnapshot = '/video/snapshot';
+  static const String videoStreamOpen = '/video/stream/open';
+  static const String videoStreamClose = '/video/stream/close';
+  static const String videoStreamStatus = '/video/stream/status';
+
   static const String aiCapturePage = '/ai-capture/page';
   static const String aiCaptureDetail = '/ai-capture/detail';
   static const String aiCaptureUnhandled = '/ai-capture/unhandled';
@@ -629,12 +635,15 @@ class ApiConstants {
   static const String aiCaptureHandle = '/ai-capture/handle';
   static const String aiCaptureIgnore = '/ai-capture/ignore';
   static const String aiCaptureStatistics = '/ai-capture/statistics';
+  static const String aiCaptureCallback = '/ai-capture/callback';
 
   static const String localRecordPage = '/local-record/page';
   static const String localRecordDetail = '/local-record/detail';
+  static const String localRecordTask = '/local-record/task';
   static const String localRecordUnsynced = '/local-record/unsynced';
   static const String localRecordList = '/local-record/list';
   static const String localRecordTrigger = '/local-record/trigger';
   static const String localRecordSyncStatus = '/local-record/sync-status';
   static const String localRecordBatchSyncStatus = '/local-record/batch-sync-status';
+  static const String localRecordConfirmUpload = '/local-record/confirm-upload';
 }

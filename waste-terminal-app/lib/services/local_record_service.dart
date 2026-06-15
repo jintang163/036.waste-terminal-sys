@@ -119,4 +119,41 @@ class LocalRecordService {
       rethrow;
     }
   }
+
+  Future<bool> confirmUpload({
+    required String taskId,
+    required String filePath,
+    required int fileSize,
+    required int durationSeconds,
+    String? startTime,
+    String? endTime,
+  }) async {
+    try {
+      final response = await _apiService.post(
+        '/local-record/confirm-upload',
+        data: {
+          'taskId': taskId,
+          'filePath': filePath,
+          'fileSize': fileSize,
+          'durationSeconds': durationSeconds,
+          if (startTime != null) 'startTime': startTime,
+          if (endTime != null) 'endTime': endTime,
+        },
+      );
+      return response.data['code'] == 200;
+    } catch (e) {
+      _logger.e('确认上传失败: $e');
+      return false;
+    }
+  }
+
+  Future<LocalRecordTask?> getByTaskId(String taskId) async {
+    try {
+      final response = await _apiService.get('/local-record/task/$taskId');
+      return _apiService.parseData<LocalRecordTask>(response, (e) => LocalRecordTask.fromJson(e));
+    } catch (e) {
+      _logger.e('根据taskId获取任务失败: $e');
+      return null;
+    }
+  }
 }

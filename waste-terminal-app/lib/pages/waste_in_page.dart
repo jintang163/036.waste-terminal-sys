@@ -19,6 +19,8 @@ import '../services/scale_service.dart';
 import '../services/waste_in_service.dart';
 import '../services/waste_catalog_service.dart';
 import '../services/file_service.dart';
+import '../services/video_player_service.dart';
+import '../services/camera_service.dart';
 import '../providers/app_provider.dart';
 import '../widgets/common_button.dart';
 import '../widgets/status_tag.dart';
@@ -26,6 +28,7 @@ import '../utils/toast_util.dart';
 import '../utils/uuid_util.dart';
 import '../utils/permission_util.dart';
 import '../models/waste_catalog.dart';
+import '../models/camera_model.dart';
 
 class WasteInPage extends StatefulWidget {
   const WasteInPage({super.key});
@@ -47,6 +50,8 @@ class _WasteInPageState extends State<WasteInPage> {
   final WasteInService _wasteInService = WasteInService();
   final BluetoothService _bluetoothService = BluetoothService();
   final ScaleService _scaleService = ScaleService();
+  final VideoPlayerService _videoPlayerService = VideoPlayerService();
+  final CameraService _cameraService = CameraService();
 
   WasteCatalog? _selectedCatalog;
   List<WasteCatalog> _catalogList = [];
@@ -59,6 +64,11 @@ class _WasteInPageState extends State<WasteInPage> {
   bool _isSaving = false;
   int _containerSeq = 0;
 
+  bool _enableOperationRecord = true;
+  CameraModel? _selectedCamera;
+  List<CameraModel> _cameraList = [];
+  bool _isRecording = false;
+
   StreamSubscription<double>? _weightSubscription;
   StreamSubscription<bool>? _stableSubscription;
   StreamSubscription<ScaleStatus>? _scaleStatusSubscription;
@@ -68,6 +78,7 @@ class _WasteInPageState extends State<WasteInPage> {
     super.initState();
     _loadCatalogs();
     _initContainerSeq();
+    _loadCameras();
     if (_isScaleMode) {
       _connectScale();
     }
@@ -84,6 +95,7 @@ class _WasteInPageState extends State<WasteInPage> {
     _weightSubscription?.cancel();
     _stableSubscription?.cancel();
     _scaleStatusSubscription?.cancel();
+    _videoPlayerService.disconnect();
     super.dispose();
   }
 
@@ -115,6 +127,60 @@ class _WasteInPageState extends State<WasteInPage> {
     setState(() {
       _containerSeq = maxSeq;
     });
+  }
+
+  Future<void> _loadCameras() async {
+    try {
+      final cameras = await _cameraService.getCameraList();
+      setState(() {
+        _cameraList = cameras;
+        if (_cameraList.isNotEmpty) {
+          _selectedCamera = _cameraList.first;
+          _startRingBuffer();
+        }
+      });
+    } catch (e) {
+      // 摄像头加载失败不影响主流程
+    }
+  }
+
+  Future<void> _startRingBuffer() async {
+    if (_selectedCamera == null || !_enableOperationRecord) return;
+    try {
+      final previewUrl = await _cameraService.getPreviewUrlByCode(_selectedCamera!.cameraCode ?? '');
+      if (previewUrl != null && previewUrl.isNotEmpty) {
+        await _videoPlayerService.startRingBuffer(
+          previewUrl,
+          cameraCode: _selectedCamera!.cameraCode,
+        );
+      }
+    } catch (e) {
+      // 环形缓冲启动失败不影响主流程
+    }
+  }
+
+  Future<bool> _triggerOperationRecord(String recordNo) async {
+    if (!_enableOperationRecord || _selectedCamera == null) return false;
+    try {
+      setState(() {
+        _isRecording = true;
+      });
+      final success = await _videoPlayerService.triggerEventRecord(
+        cameraCode: _selectedCamera!.cameraCode ?? '',
+        triggerType: 'waste_in',
+        triggerId: recordNo,
+      );
+      return success;
+    } catch (e) {
+      ToastUtil.showWarning('操作录像触发失败: ${e.toString().substring(0, e.toString().length > 50 ? 50 : e.toString().length)}');
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+        });
+      }
+    }
   }
 
   String _generateContainerCode() {
@@ -518,6 +584,10 @@ class _WasteInPageState extends State<WasteInPage> {
 
       ToastUtil.showSuccess('入库记录保存成功');
 
+      if (_enableOperationRecord && _selectedCamera != null) {
+        _triggerOperationRecord(record['record_no']);
+      }
+
       _showPrintDialog(record, weight, containerCode);
     } catch (e) {
       ToastUtil.showError('保存失败: ${e.toString().replaceAll('Exception: ', '')}');
@@ -645,6 +715,8 @@ class _WasteInPageState extends State<WasteInPage> {
                     _buildContainerCodeSection(),
                     SizedBox(height: 16.h),
                     _buildPhotoSection(),
+                    SizedBox(height: 16.h),
+                    if (_cameraList.isNotEmpty) _buildRecordSettingSection(),
                     SizedBox(height: 16.h),
                     _buildFormFieldsSection(),
                     SizedBox(height: 80.h),
@@ -1125,6 +1197,93 @@ class _WasteInPageState extends State<WasteInPage> {
                 ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecordSettingSection() {
+    return Container(
+      padding: EdgeInsets.all(12.r),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.r12),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.shadowColor,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('操作录像', style: AppTextStyle.subtitle),
+              Switch(
+                value: _enableOperationRecord,
+                onChanged: (value) {
+                  setState(() {
+                    _enableOperationRecord = value;
+                    if (value) {
+                      _startRingBuffer();
+                    } else {
+                      _videoPlayerService.disconnect();
+                    }
+                  });
+                },
+                activeColor: AppTheme.primaryColor,
+              ),
+            ],
+          ),
+          if (_enableOperationRecord) ...[
+            SizedBox(height: 8.h),
+            DropdownButtonFormField<CameraModel>(
+              value: _selectedCamera,
+              decoration: InputDecoration(
+                labelText: '选择摄像头',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.r8),
+                ),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+              ),
+              items: _cameraList.map((camera) {
+                return DropdownMenuItem<CameraModel>(
+                  value: camera,
+                  child: Text(camera.cameraName ?? camera.cameraCode ?? ''),
+                );
+              }).toList(),
+              onChanged: (CameraModel? value) {
+                if (value != null) {
+                  setState(() {
+                    _selectedCamera = value;
+                  });
+                  _videoPlayerService.disconnect();
+                  _startRingBuffer();
+                }
+              },
+            ),
+            SizedBox(height: 8.h),
+            Row(
+              children: [
+                Icon(
+                  _isRecording ? Icons.videocam : Icons.videocam_off,
+                  size: 16.sp,
+                  color: _isRecording ? AppTheme.dangerColor : AppTheme.textHint,
+                ),
+                SizedBox(width: 4.w),
+                Text(
+                  _isRecording ? '正在录制操作视频...' : '保存时自动录制前后10秒',
+                  style: AppTextStyle.caption.copyWith(
+                    color: _isRecording ? AppTheme.dangerColor : AppTheme.textHint,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

@@ -30,6 +30,7 @@
         <bouncycastle.version>1.77</bouncycastle.version>
         <lombok.version>1.18.30</lombok.version>
         <netty.version>4.1.100.Final</netty.version>
+        <javacv.version>1.5.9</javacv.version>
     </properties>
 
     <dependencies>
@@ -125,6 +126,29 @@
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
             <version>${netty.version}</version>
+        </dependency>
+
+        <!-- JavaCV (FFmpeg 视频处理) - RTSP转流/抓拍/录像 -->
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacv-platform</artifactId>
+            <version>${javacv.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bytedeco</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>ffmpeg-platform</artifactId>
+            <version>6.0-1.5.9</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.9</version>
         </dependency>
 
         <!-- Knife4j (Swagger增强) -->
