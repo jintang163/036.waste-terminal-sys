@@ -19,21 +19,21 @@ import com.waste.excel.WasteLedgerExcelData;
 import com.waste.excel.WasteLedgerSummaryExcelData;
 import com.waste.mapper.*;
 import com.waste.service.FileService;
+import com.waste.service.NationalPlatformService;
 import com.waste.service.WasteLedgerService;
+import com.waste.utils.FileUploadUtils;
 import com.waste.utils.IdGeneratorUtils;
 import com.waste.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -72,14 +72,11 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
     @Autowired
     private FileService fileService;
 
-    @Value("${waste.national-platform.url:https://api.ep.gov.cn/waste}")
-    private String nationalPlatformUrl;
+    @Autowired
+    private FileUploadUtils fileUploadUtils;
 
-    @Value("${waste.national-platform.app-id:EP_APP_20240001}")
-    private String nationalPlatformAppId;
-
-    @Value("${waste.national-platform.app-secret:}")
-    private String nationalPlatformAppSecret;
+    @Autowired
+    private NationalPlatformService nationalPlatformService;
 
     @Value("${waste.national-platform.mock-enabled:false}")
     private boolean mockEnabled;
@@ -216,11 +213,10 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             LocalDateTime startDateTime = startDate.atStartOfDay();
             LocalDateTime endDateTime = endDate.atTime(23, 59, 59);
 
-            List<WasteInRecord> inRecords = queryInRecords(enterpriseId, startDateTime, endDateTime);
-            List<WasteOutRecord> outRecords = queryOutRecords(enterpriseId, startDateTime, endDateTime);
+            List<WasteInRecord> inRecords = querySyncedInRecords(enterpriseId, startDateTime, endDateTime);
+            List<WasteOutRecord> outRecords = querySyncedOutRecords(enterpriseId, startDateTime, endDateTime);
 
-            for (int i = 0; i < inRecords.size(); i++) {
-                WasteInRecord record = inRecords.get(i);
+            for (WasteInRecord record : inRecords) {
                 WasteLedgerDetail detail = new WasteLedgerDetail();
                 detail.setLedgerId(ledgerId);
                 detail.setLedgerNo(ledger.getLedgerNo());
@@ -243,8 +239,7 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
                 details.add(detail);
             }
 
-            for (int i = 0; i < outRecords.size(); i++) {
-                WasteOutRecord record = outRecords.get(i);
+            for (WasteOutRecord record : outRecords) {
                 WasteLedgerDetail detail = new WasteLedgerDetail();
                 detail.setLedgerId(ledgerId);
                 detail.setLedgerNo(ledger.getLedgerNo());
@@ -265,6 +260,32 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
                 details.add(detail);
             }
 
+            List<WasteInventory> inventoryChanges = queryInventoryChanges(enterpriseId, startDateTime, endDateTime);
+            for (WasteInventory inv : inventoryChanges) {
+                WasteLedgerDetail detail = new WasteLedgerDetail();
+                detail.setLedgerId(ledgerId);
+                detail.setLedgerNo(ledger.getLedgerNo());
+                detail.setDetailType("INVENTORY_CHANGE");
+                String changeType = determineInventoryChangeType(inv);
+                detail.setChangeType(changeType);
+                detail.setWasteId(inv.getWasteId());
+                detail.setWasteCode(inv.getWasteCode());
+                detail.setWasteName(inv.getWasteName());
+                detail.setWasteCategory(inv.getWasteCategory());
+                detail.setHazardCode(inv.getHazardCode());
+                detail.setContainerId(inv.getContainerId());
+                detail.setContainerCode(inv.getContainerCode());
+                detail.setRecordNo(inv.getContainerCode());
+                detail.setWeight(inv.getWeight());
+                detail.setOperateTime(inv.getCreateTime());
+                detail.setRemark("库存变动");
+                detail.setCreateTime(LocalDateTime.now());
+                detail.setUpdateTime(LocalDateTime.now());
+                details.add(detail);
+            }
+
+            details.sort(Comparator.comparing(WasteLedgerDetail::getOperateTime, Comparator.nullsLast(Comparator.naturalOrder())));
+
             if (CollUtil.isNotEmpty(details)) {
                 for (WasteLedgerDetail detail : details) {
                     wasteLedgerDetailMapper.insert(detail);
@@ -282,7 +303,7 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             BigDecimal beginInventoryWeight = calculateBeginInventory(enterpriseId, startDate);
-            BigDecimal endInventoryWeight = calculateEndInventory(enterpriseId, endDate);
+            BigDecimal endInventoryWeight = beginInventoryWeight.add(totalInWeight).subtract(totalOutWeight);
 
             ledger.setTotalInCount(inRecords.size());
             ledger.setTotalInWeight(totalInWeight);
@@ -291,15 +312,17 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             ledger.setBeginInventoryWeight(beginInventoryWeight);
             ledger.setEndInventoryWeight(endInventoryWeight);
 
-            String excelUrl = generateExcelFile(ledger, details);
-            ledger.setFileUrl(excelUrl);
-            ledger.setFileName(generateFileName(ledger));
+            SysFile sysFile = generateAndUploadExcel(ledger, details);
+            ledger.setFileId(sysFile.getId());
+            ledger.setFileUrl(sysFile.getObjectKey() != null ? sysFile.getObjectKey() : sysFile.getFileUrl());
+            ledger.setFileName(sysFile.getFileName());
 
             ledger.setGenerateStatus(2);
             ledger.setGenerateTime(LocalDateTime.now());
             wasteLedgerMapper.updateById(ledger);
 
-            log.info("台账生成成功, ledgerId={}, ledgerNo={}", ledgerId, ledger.getLedgerNo());
+            log.info("台账生成成功, ledgerId={}, ledgerNo={}, 期初={}, 入库={}, 出库={}, 期末={}",
+                    ledgerId, ledger.getLedgerNo(), beginInventoryWeight, totalInWeight, totalOutWeight, endInventoryWeight);
 
         } catch (Exception e) {
             log.error("台账生成失败, ledgerId={}", ledgerId, e);
@@ -329,10 +352,13 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
         if (ledger.getGenerateStatus() != 2) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "台账尚未生成完成，无法预览");
         }
-        if (StrUtil.isBlank(ledger.getFileUrl())) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "台账文件不存在");
+        if (ledger.getFileId() != null) {
+            return fileService.getFileUrl(ledger.getFileId());
         }
-        return ledger.getFileUrl();
+        if (StrUtil.isNotBlank(ledger.getFileUrl())) {
+            return fileUploadUtils.getFileUrl(ledger.getFileUrl());
+        }
+        throw new BusinessException(ResultCode.PARAM_ERROR, "台账文件不存在");
     }
 
     @Override
@@ -365,27 +391,31 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             ledger.setReportStatus(1);
             wasteLedgerMapper.updateById(ledger);
 
-            Map<String, Object> requestData = buildReportRequestData(ledger);
-            String requestPayload = JsonUtils.toJsonString(requestData);
+            Map<String, Object> bizData = buildLedgerReportBizData(ledger);
+            String requestPayload = JsonUtils.toJson(bizData);
             reportLog.setRequestPayload(requestPayload);
 
-            String responsePayload;
             String platformLedgerNo;
+            String responsePayload;
 
             if (mockEnabled) {
-                responsePayload = mockReportResponse(ledger);
+                responsePayload = mockLedgerReportResponse(ledger);
                 platformLedgerNo = "MOCK_" + System.currentTimeMillis();
                 reportLog.setReportStatus(1);
             } else {
-                ResponseEntity<String> response = callNationalPlatformApi(requestData);
-                responsePayload = response.getBody();
-                Map<String, Object> responseMap = JsonUtils.parseMap(responsePayload);
-                if (responseMap != null && "success".equals(responseMap.get("code"))) {
-                    platformLedgerNo = (String) responseMap.get("data");
+                Map<String, Object> result = nationalPlatformService.reportElectronicManifestWithResult(
+                        buildTransferOrderFromLedger(ledger));
+                responsePayload = JsonUtils.toJson(result);
+                boolean success = result != null && Boolean.TRUE.equals(result.get("success"));
+                if (success) {
+                    platformLedgerNo = result.get("platformBizNo") != null
+                            ? result.get("platformBizNo").toString()
+                            : "GJ_" + ledger.getLedgerNo();
                     reportLog.setReportStatus(1);
                 } else {
-                    throw new BusinessException(ResultCode.SYSTEM_ERROR,
-                            responseMap != null ? (String) responseMap.get("message") : "上报失败");
+                    String errMsg = result != null && result.get("message") != null
+                            ? result.get("message").toString() : "上报失败";
+                    throw new BusinessException(ResultCode.SYSTEM_ERROR, errMsg);
                 }
             }
 
@@ -395,7 +425,7 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             ledger.setReportStatus(2);
             ledger.setReportTime(LocalDateTime.now());
             ledger.setPlatformLedgerNo(platformLedgerNo);
-            ledger.setRetryCount(ledger.getRetryCount() != null ? ledger.getRetryCount() + 1 : 1);
+            ledger.setRetryCount(0);
             wasteLedgerMapper.updateById(ledger);
 
             log.info("台账上报成功, ledgerId={}, platformLedgerNo={}", ledger.getId(), platformLedgerNo);
@@ -526,55 +556,78 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
         }
     }
 
-    private List<WasteInRecord> queryInRecords(Long enterpriseId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
+    private List<WasteInRecord> querySyncedInRecords(Long enterpriseId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
         LambdaQueryWrapper<WasteInRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(WasteInRecord::getEnterpriseId, enterpriseId);
         wrapper.ge(WasteInRecord::getCreateTime, startDateTime);
         wrapper.le(WasteInRecord::getCreateTime, endDateTime);
+        wrapper.eq(WasteInRecord::getSyncStatus, 1);
         wrapper.ne(WasteInRecord::getStatus, 0);
         wrapper.orderByAsc(WasteInRecord::getCreateTime);
         return wasteInRecordMapper.selectList(wrapper);
     }
 
-    private List<WasteOutRecord> queryOutRecords(Long enterpriseId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
+    private List<WasteOutRecord> querySyncedOutRecords(Long enterpriseId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
         LambdaQueryWrapper<WasteOutRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(WasteOutRecord::getEnterpriseId, enterpriseId);
         wrapper.ge(WasteOutRecord::getCreateTime, startDateTime);
         wrapper.le(WasteOutRecord::getCreateTime, endDateTime);
+        wrapper.eq(WasteOutRecord::getSyncStatus, 1);
         wrapper.ne(WasteOutRecord::getStatus, 0);
         wrapper.orderByAsc(WasteOutRecord::getCreateTime);
         return wasteOutRecordMapper.selectList(wrapper);
     }
 
-    private BigDecimal calculateBeginInventory(Long enterpriseId, LocalDate startDate) {
-        LocalDateTime startDateTime = startDate.atStartOfDay();
+    private List<WasteInventory> queryInventoryChanges(Long enterpriseId, LocalDateTime startDateTime, LocalDateTime endDateTime) {
         LambdaQueryWrapper<WasteInventory> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(WasteInventory::getEnterpriseId, enterpriseId);
         wrapper.eq(WasteInventory::getStatus, 1);
-        wrapper.le(WasteInventory::getInDate, startDate);
-        List<WasteInventory> inventories = wasteInventoryMapper.selectList(wrapper);
-
-        return inventories.stream()
-                .map(WasteInventory::getWeight)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    private BigDecimal calculateEndInventory(Long enterpriseId, LocalDate endDate) {
-        LocalDateTime endDateTime = endDate.atTime(23, 59, 59);
-        LambdaQueryWrapper<WasteInventory> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(WasteInventory::getEnterpriseId, enterpriseId);
-        wrapper.eq(WasteInventory::getStatus, 1);
+        wrapper.ge(WasteInventory::getCreateTime, startDateTime);
         wrapper.le(WasteInventory::getCreateTime, endDateTime);
-        List<WasteInventory> inventories = wasteInventoryMapper.selectList(wrapper);
-
-        return inventories.stream()
-                .map(WasteInventory::getWeight)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return wasteInventoryMapper.selectList(wrapper);
     }
 
-    private String generateExcelFile(WasteLedger ledger, List<WasteLedgerDetail> details) {
+    private String determineInventoryChangeType(WasteInventory inv) {
+        BigDecimal inW = inv.getInWeight() != null ? inv.getInWeight() : BigDecimal.ZERO;
+        BigDecimal outW = inv.getOutWeight() != null ? inv.getOutWeight() : BigDecimal.ZERO;
+        if (outW.compareTo(BigDecimal.ZERO) > 0 && inW.compareTo(BigDecimal.ZERO) == 0) {
+            return "OUT";
+        } else if (inW.compareTo(BigDecimal.ZERO) > 0 && outW.compareTo(BigDecimal.ZERO) == 0) {
+            return "IN";
+        } else if (outW.compareTo(BigDecimal.ZERO) > 0) {
+            return "ADJUST";
+        }
+        return "ADJUST";
+    }
+
+    private BigDecimal calculateBeginInventory(Long enterpriseId, LocalDate startDate) {
+        LocalDate dayBefore = startDate.minusDays(1);
+        LocalDateTime endOfPreviousDay = dayBefore.atTime(23, 59, 59);
+
+        LambdaQueryWrapper<WasteInRecord> inWrapper = new LambdaQueryWrapper<>();
+        inWrapper.eq(WasteInRecord::getEnterpriseId, enterpriseId);
+        inWrapper.eq(WasteInRecord::getSyncStatus, 1);
+        inWrapper.ne(WasteInRecord::getStatus, 0);
+        inWrapper.le(WasteInRecord::getCreateTime, endOfPreviousDay);
+        BigDecimal totalIn = wasteInRecordMapper.selectList(inWrapper).stream()
+                .map(WasteInRecord::getWeight)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        LambdaQueryWrapper<WasteOutRecord> outWrapper = new LambdaQueryWrapper<>();
+        outWrapper.eq(WasteOutRecord::getEnterpriseId, enterpriseId);
+        outWrapper.eq(WasteOutRecord::getSyncStatus, 1);
+        outWrapper.ne(WasteOutRecord::getStatus, 0);
+        outWrapper.le(WasteOutRecord::getCreateTime, endOfPreviousDay);
+        BigDecimal totalOut = wasteOutRecordMapper.selectList(outWrapper).stream()
+                .map(WasteOutRecord::getWeight)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return totalIn.subtract(totalOut);
+    }
+
+    private SysFile generateAndUploadExcel(WasteLedger ledger, List<WasteLedgerDetail> details) {
         String fileName = generateFileName(ledger);
         String tempPath = System.getProperty("java.io.tmpdir") + File.separator + fileName;
 
@@ -597,14 +650,16 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             byte[] fileBytes = FileUtil.readBytes(tempPath);
             InputStream inputStream = new ByteArrayInputStream(fileBytes);
 
-            String fileUrl = fileService.upload(inputStream, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    fileBytes.length, "waste_ledger", ledger.getLedgerNo(), ledger.getEnterpriseId());
+            MockMultipartFile multipartFile = new MockMultipartFile(
+                    "file", fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", inputStream);
+
+            SysFile sysFile = fileService.upload(multipartFile, "waste_ledger", ledger.getEnterpriseId());
 
             FileUtil.del(tempPath);
 
-            return fileUrl;
+            return sysFile;
         } catch (Exception e) {
-            log.error("生成Excel文件失败, ledgerId={}", ledger.getId(), e);
+            log.error("生成并上传Excel文件失败, ledgerId={}", ledger.getId(), e);
             FileUtil.del(tempPath);
             throw new BusinessException(ResultCode.SYSTEM_ERROR, "生成Excel文件失败: " + e.getMessage());
         }
@@ -685,7 +740,19 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             WasteLedgerDetail detail = details.get(i);
             WasteLedgerExcelData data = new WasteLedgerExcelData();
             data.setSeq(i + 1);
-            data.setDetailType("IN".equals(detail.getDetailType()) ? "入库" : "出库");
+            switch (detail.getDetailType()) {
+                case "IN":
+                    data.setDetailType("入库");
+                    break;
+                case "OUT":
+                    data.setDetailType("出库");
+                    break;
+                case "INVENTORY_CHANGE":
+                    data.setDetailType("库存变动");
+                    break;
+                default:
+                    data.setDetailType(detail.getDetailType());
+            }
             data.setRecordNo(detail.getRecordNo());
             data.setWasteCode(detail.getWasteCode());
             data.setWasteName(detail.getWasteName());
@@ -693,7 +760,22 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
             data.setHazardCode(detail.getHazardCode());
             data.setContainerCode(detail.getContainerCode());
             data.setWeight(detail.getWeight());
-            data.setChangeType("IN".equals(detail.getChangeType()) ? "入库" : "出库");
+            switch (detail.getChangeType()) {
+                case "IN":
+                    data.setChangeType("入库");
+                    break;
+                case "OUT":
+                    data.setChangeType("出库");
+                    break;
+                case "ADJUST":
+                    data.setChangeType("调整");
+                    break;
+                case "LOSS":
+                    data.setChangeType("损耗");
+                    break;
+                default:
+                    data.setChangeType(detail.getChangeType());
+            }
             data.setOperateTime(detail.getOperateTime() != null ? detail.getOperateTime().format(DATE_TIME_FORMATTER) : "");
             data.setOperatorName(detail.getOperatorName());
             data.setRemark(detail.getRemark());
@@ -703,8 +785,8 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
         return list;
     }
 
-    private Map<String, Object> buildReportRequestData(WasteLedger ledger) {
-        Map<String, Object> data = new HashMap<>();
+    private Map<String, Object> buildLedgerReportBizData(WasteLedger ledger) {
+        Map<String, Object> data = new LinkedHashMap<>();
         data.put("ledgerNo", ledger.getLedgerNo());
         data.put("ledgerType", ledger.getLedgerType());
         data.put("periodYear", ledger.getPeriodYear());
@@ -719,45 +801,40 @@ public class WasteLedgerServiceImpl implements WasteLedgerService {
         data.put("totalOutWeight", ledger.getTotalOutWeight());
         data.put("beginInventoryWeight", ledger.getBeginInventoryWeight());
         data.put("endInventoryWeight", ledger.getEndInventoryWeight());
-        data.put("fileUrl", ledger.getFileUrl());
         data.put("reportTime", LocalDateTime.now().format(DATE_TIME_FORMATTER));
-
-        Map<String, String> header = new HashMap<>();
-        header.put("appId", nationalPlatformAppId);
-        header.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        header.put("sign", generateSign(data));
-
-        Map<String, Object> request = new HashMap<>();
-        request.put("header", header);
-        request.put("data", data);
-
-        return request;
+        if (ledger.getFileId() != null) {
+            try {
+                data.put("fileUrl", fileService.getFileUrl(ledger.getFileId()));
+            } catch (Exception e) {
+                log.warn("获取台账文件预览URL失败, fileId={}", ledger.getFileId(), e);
+            }
+        }
+        return data;
     }
 
-    private String generateSign(Map<String, Object> data) {
-        String dataStr = JsonUtils.toJsonString(data);
-        return cn.hutool.crypto.SecureUtil.md5(dataStr + nationalPlatformAppSecret);
+    private WasteTransferOrder buildTransferOrderFromLedger(WasteLedger ledger) {
+        WasteTransferOrder order = new WasteTransferOrder();
+        order.setOrderNo(ledger.getLedgerNo());
+        order.setOrderType(ledger.getLedgerType());
+        order.setGeneratorUnitCode(ledger.getEnterpriseCode());
+        order.setGeneratorUnitName(ledger.getEnterpriseName());
+        order.setReceiverUnitName(ledger.getEnterpriseName());
+        order.setTotalWeight(ledger.getEndInventoryWeight());
+        order.setEnterpriseId(ledger.getEnterpriseId());
+        return order;
     }
 
-    private ResponseEntity<String> callNationalPlatformApi(Map<String, Object> requestData) {
-        RestTemplate restTemplate = new RestTemplate();
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("appId", nationalPlatformAppId);
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestData, headers);
-        String url = nationalPlatformUrl + "/ledger/report";
-
-        return restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-    }
-
-    private String mockReportResponse(WasteLedger ledger) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", "success");
-        response.put("message", "上报成功");
-        response.put("data", "PROV_" + ledger.getLedgerNo());
+    private String mockLedgerReportResponse(WasteLedger ledger) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("code", "0");
+        response.put("message", "success");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("platformBizNo", "PROV_" + ledger.getLedgerNo());
+        data.put("bizNo", ledger.getLedgerNo());
+        data.put("reportTime", LocalDateTime.now().format(DATE_TIME_FORMATTER));
+        response.put("data", data);
         response.put("timestamp", System.currentTimeMillis());
-        return JsonUtils.toJsonString(response);
+        return JsonUtils.toJson(response);
     }
 
     private LambdaQueryWrapper<WasteLedger> buildQueryWrapper(WasteLedger wasteLedger, Long enterpriseId) {
