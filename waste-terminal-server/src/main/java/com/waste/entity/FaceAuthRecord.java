@@ -47,6 +47,10 @@ public class FaceAuthRecord extends BaseEntity {
 
     private LocalDateTime authTime;
 
+    private Double livenessScore;
+
+    private Integer faceQuality;
+
     private Long enterpriseId;
 
     private String remark;

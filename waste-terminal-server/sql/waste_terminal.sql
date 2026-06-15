@@ -921,6 +921,8 @@ CREATE TABLE face_auth_record (
     real_name VARCHAR(50) COMMENT '真实姓名',
     face_id VARCHAR(64) COMMENT '人脸ID',
     similarity DOUBLE COMMENT '相似度(0-1)',
+    liveness_score DOUBLE COMMENT '活体检测分数(0-1)',
+    face_quality INT COMMENT '人脸质量分数(0-100)',
     auth_status TINYINT DEFAULT 0 COMMENT '认证状态: 0-失败 1-成功',
     auth_type VARCHAR(30) COMMENT '认证类型: login-登录 verify-操作验证',
     business_type VARCHAR(30) COMMENT '业务类型: waste_in-入库 waste_out-出库等',
@@ -944,3 +946,8 @@ CREATE TABLE face_auth_record (
     KEY idx_auth_time (auth_time),
     KEY idx_enterprise_id (enterprise_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='人脸认证记录表';
+
+-- 为已存在的表添加字段
+ALTER TABLE face_auth_record 
+ADD COLUMN IF NOT EXISTS liveness_score DOUBLE COMMENT '活体检测分数(0-1)' AFTER similarity,
+ADD COLUMN IF NOT EXISTS face_quality INT COMMENT '人脸质量分数(0-100)' AFTER liveness_score;

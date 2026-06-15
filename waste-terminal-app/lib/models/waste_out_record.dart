@@ -163,6 +163,56 @@ class WasteOutRecord {
     };
   }
 
+  factory WasteOutRecord.fromDbMap(Map<String, dynamic> map) {
+    return WasteOutRecord(
+      id: map['id'] as int?,
+      outNo: map['record_no'] as String?,
+      transferOrderId: map['transfer_order_id'] as int?,
+      containerId: map['container_id'] as int?,
+      containerCode: map['container_code'] as String?,
+      wasteId: map['waste_id'] as int?,
+      wasteCode: map['waste_code'] as String?,
+      wasteName: map['waste_name'] as String?,
+      weight: (map['weight'] as num?)?.toDouble(),
+      receiverUnitId: map['receiver_id'] as int?,
+      receiverUnitName: map['receiver'] as String?,
+      transporterId: map['transporter_id'] as int?,
+      transporterName: map['transporter'] as String?,
+      vehicleNo: map['vehicle_no'] as String?,
+      driverName: map['driver_name'] as String?,
+      driverPhone: map['driver_phone'] as String?,
+      outTime: map['out_time'] != null
+          ? DateTime.tryParse(map['out_time'] as String)
+          : null,
+      operatorId: map['operator_id'] as int?,
+      operatorName: map['operator'] as String?,
+      remark: map['remark'] as String?,
+      status: map['status'] as int?,
+      signStatus: map['sign_status'] as int?,
+      signTime: map['sign_time'] != null
+          ? DateTime.tryParse(map['sign_time'] as String)
+          : null,
+      signPhoto: map['sign_photo'] as String?,
+      receiptPhoto: map['receipt_photo'] as String?,
+      syncStatus: map['sync_status'] as int?,
+      syncTime: map['sync_time'] != null
+          ? DateTime.tryParse(map['sync_time'] as String)
+          : null,
+      offlineId: map['offline_id'] as String?,
+      enterpriseId: map['enterprise_id'] as int?,
+      createTime: map['create_time'] != null
+          ? DateTime.tryParse(map['create_time'] as String)
+          : null,
+      updateTime: map['update_time'] != null
+          ? DateTime.tryParse(map['update_time'] as String)
+          : null,
+      deleted: map['is_deleted'] as int?,
+      faceAuthId: map['face_auth_id'] as String?,
+      faceId: map['face_id'] as String?,
+      operatorFaceImage: map['operator_face_image'] as String?,
+    );
+  }
+
   Map<String, dynamic> toDbMap() {
     return {
       'id': id,
@@ -177,6 +227,7 @@ class WasteOutRecord {
       'receiver_id': receiverUnitId,
       'receiver': receiverUnitName,
       'transporter_id': transporterId,
+      'transporter': transporterName,
       'vehicle_no': vehicleNo,
       'driver_name': driverName,
       'driver_phone': driverPhone,
@@ -185,6 +236,10 @@ class WasteOutRecord {
       'operator': operatorName,
       'remark': remark,
       'status': status,
+      'sign_status': signStatus,
+      'sign_time': signTime?.toIso8601String(),
+      'sign_photo': signPhoto,
+      'receipt_photo': receiptPhoto,
       'sync_status': syncStatus,
       'sync_time': syncTime?.toIso8601String(),
       'offline_id': offlineId,

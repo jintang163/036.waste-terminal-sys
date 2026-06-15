@@ -69,6 +69,47 @@ class UserFaceModel {
     };
   }
 
+  factory UserFaceModel.fromDbMap(Map<String, dynamic> map) {
+    return UserFaceModel(
+      id: map['id'] as int?,
+      userId: map['user_id'] as int?,
+      username: map['username'] as String?,
+      faceId: map['face_id'] as String?,
+      faceFeature: map['face_feature'] as String?,
+      faceImage: map['face_image'] as String?,
+      status: map['status'] as int?,
+      enrollQuality: map['enroll_quality'] as int?,
+      deviceId: map['device_id'] as String?,
+      enterpriseId: map['enterprise_id'] as int?,
+      remark: map['remark'] as String?,
+      createTime: map['create_time'] != null
+          ? DateTime.tryParse(map['create_time'] as String)
+          : null,
+      updateTime: map['update_time'] != null
+          ? DateTime.tryParse(map['update_time'] as String)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toDbMap() {
+    return {
+      'id': id,
+      'user_id': userId,
+      'username': username,
+      'face_id': faceId,
+      'face_feature': faceFeature,
+      'face_image': faceImage,
+      'status': status ?? 1,
+      'enroll_quality': enrollQuality,
+      'device_id': deviceId,
+      'enterprise_id': enterpriseId,
+      'remark': remark,
+      'create_time': createTime?.toIso8601String(),
+      'update_time': updateTime?.toIso8601String(),
+      'is_deleted': 0,
+    };
+  }
+
   UserFaceModel copyWith({
     int? id,
     int? userId,

@@ -18,12 +18,8 @@ class FaceAuthRecordService {
 
   Future<int> saveAuthRecord(FaceAuthRecordModel record) async {
     try {
-      final now = DateTime.now().toIso8601String();
-      final json = record.toJson();
-      json['create_time'] = now;
-      json['update_time'] = now;
-      json['sync_status'] = 0;
-      return await _faceAuthRecordDb.insert(json);
+      final dbMap = record.toDbMap();
+      return await _faceAuthRecordDb.insert(dbMap);
     } catch (e) {
       _logger.e('保存人脸认证记录失败: $e');
       rethrow;
@@ -33,7 +29,7 @@ class FaceAuthRecordService {
   Future<List<FaceAuthRecordModel>> getUnsyncedRecords() async {
     try {
       final list = await _faceAuthRecordDb.queryUnsynced();
-      return list.map((e) => FaceAuthRecordModel.fromJson(e)).toList();
+      return list.map((e) => FaceAuthRecordModel.fromDbMap(e)).toList();
     } catch (e) {
       _logger.e('获取未同步认证记录失败: $e');
       return [];
@@ -44,7 +40,7 @@ class FaceAuthRecordService {
       String businessType, String businessId) async {
     try {
       final list = await _faceAuthRecordDb.queryByBusiness(businessType, businessId);
-      return list.map((e) => FaceAuthRecordModel.fromJson(e)).toList();
+      return list.map((e) => FaceAuthRecordModel.fromDbMap(e)).toList();
     } catch (e) {
       _logger.e('根据业务获取认证记录失败: $e');
       return [];
@@ -54,7 +50,7 @@ class FaceAuthRecordService {
   Future<List<FaceAuthRecordModel>> getRecordsByUserId(int userId) async {
     try {
       final list = await _faceAuthRecordDb.queryByUserId(userId);
-      return list.map((e) => FaceAuthRecordModel.fromJson(e)).toList();
+      return list.map((e) => FaceAuthRecordModel.fromDbMap(e)).toList();
     } catch (e) {
       _logger.e('根据用户获取认证记录失败: $e');
       return [];

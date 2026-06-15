@@ -145,6 +145,89 @@ class WasteInRecord {
     };
   }
 
+  factory WasteInRecord.fromDbMap(Map<String, dynamic> map) {
+    return WasteInRecord(
+      id: map['id'] as int?,
+      inNo: map['record_no'] as String?,
+      containerId: map['container_id'] as int?,
+      containerCode: map['container_code'] as String?,
+      wasteId: map['waste_id'] as int?,
+      wasteCode: map['waste_code'] as String?,
+      wasteName: map['waste_name'] as String?,
+      wasteCategory: map['waste_category'] as String?,
+      hazardCode: map['hazard_code'] as String?,
+      weight: (map['weight'] as num?)?.toDouble(),
+      weightSource: map['weight_source'] as String?,
+      scaleDevice: map['scale_device'] as String?,
+      produceDate: map['produce_date'] != null
+          ? DateTime.tryParse(map['produce_date'] as String)
+          : null,
+      produceDepartment: map['produce_department'] as String?,
+      storageLocation: map['warehouse'] as String?,
+      operatorId: map['operator_id'] as int?,
+      operatorName: map['operator'] as String?,
+      photos: map['photos'] as String?,
+      remark: map['remark'] as String?,
+      status: map['status'] as int?,
+      syncStatus: map['sync_status'] as int?,
+      syncTime: map['sync_time'] != null
+          ? DateTime.tryParse(map['sync_time'] as String)
+          : null,
+      syncFailReason: map['sync_fail_reason'] as String?,
+      offlineId: map['offline_id'] as String?,
+      enterpriseId: map['enterprise_id'] as int?,
+      createTime: map['create_time'] != null
+          ? DateTime.tryParse(map['create_time'] as String)
+          : null,
+      updateTime: map['update_time'] != null
+          ? DateTime.tryParse(map['update_time'] as String)
+          : null,
+      deleted: map['is_deleted'] as int?,
+      faceAuthId: map['face_auth_id'] as String?,
+      faceId: map['face_id'] as String?,
+      operatorFaceImage: map['operator_face_image'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toDbMap() {
+    return {
+      'id': id,
+      'record_no': inNo,
+      'container_id': containerId,
+      'container_code': containerCode,
+      'waste_id': wasteId,
+      'waste_code': wasteCode,
+      'waste_name': wasteName,
+      'waste_category': wasteCategory,
+      'hazard_code': hazardCode,
+      'weight': weight,
+      'weight_source': weightSource,
+      'weight_unit': 'kg',
+      'scale_device': scaleDevice,
+      'produce_date': produceDate?.toIso8601String(),
+      'produce_department': produceDepartment,
+      'warehouse': storageLocation,
+      'operator_id': operatorId,
+      'operator': operatorName,
+      'source': weightSource ?? 'manual',
+      'in_time': createTime?.toIso8601String(),
+      'photos': photos,
+      'remark': remark,
+      'status': status ?? 1,
+      'sync_status': syncStatus ?? 0,
+      'sync_time': syncTime?.toIso8601String(),
+      'sync_fail_reason': syncFailReason,
+      'offline_id': offlineId,
+      'enterprise_id': enterpriseId,
+      'create_time': createTime?.toIso8601String(),
+      'update_time': updateTime?.toIso8601String(),
+      'is_deleted': deleted ?? 0,
+      'face_auth_id': faceAuthId,
+      'face_id': faceId,
+      'operator_face_image': operatorFaceImage,
+    };
+  }
+
   WasteInRecord copyWith({
     int? id,
     String? inNo,

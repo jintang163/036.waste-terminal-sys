@@ -3,6 +3,9 @@ import 'package:logger/logger.dart';
 import 'package:connectivity_plus/connectivity.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/waste_in_record.dart';
+import '../models/waste_out_record.dart';
+import '../models/face_auth_record_model.dart';
 import '../db/sync_log_db.dart';
 import '../db/waste_catalog_db.dart';
 import '../db/waste_container_db.dart';
@@ -403,9 +406,10 @@ class SyncService {
 
       for (var record in unsynced) {
         try {
+          final wasteInRecord = WasteInRecord.fromDbMap(record);
           final response = await _apiService.post(
             '/waste-in/add',
-            data: record,
+            data: wasteInRecord.toJson(),
           );
 
           String? recordId = response.data['data']?['recordId'];
@@ -447,9 +451,10 @@ class SyncService {
 
       for (var record in unsynced) {
         try {
+          final wasteOutRecord = WasteOutRecord.fromDbMap(record);
           final response = await _apiService.post(
             '/waste-out/add',
-            data: record,
+            data: wasteOutRecord.toJson(),
           );
 
           String? recordId = response.data['data']?['recordId'];
@@ -680,9 +685,13 @@ class SyncService {
 
       _logger.d('待同步人脸认证记录数量: ${unsynced.length}');
 
+      final List<Map<String, dynamic>> uploadData = unsynced
+          .map((map) => FaceAuthRecordModel.fromDbMap(map).toJson())
+          .toList();
+
       final response = await _apiService.post(
         '/face-auth/batch',
-        data: unsynced,
+        data: uploadData,
       );
 
       if (response.data['code'] == 200) {

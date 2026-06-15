@@ -11,151 +11,55 @@ import '../models/user_face_model.dart';
 import '../models/face_auth_record_model.dart';
 import 'user_face_service.dart';
 import 'face_auth_record_service.dart';
+import 'face_detection_service.dart';
+
+class FaceAuthResult {
+  final bool success;
+  final double similarity;
+  final UserFaceModel? userFace;
+  final String? authId;
+  final String? error;
+  final Uint8List? capturedImage;
+  final double? livenessScore;
+  final int? faceQuality;
+
+  FaceAuthResult({
+    required this.success,
+    required this.similarity,
+    this.userFace,
+    this.authId,
+    this.error,
+    this.capturedImage,
+    this.livenessScore,
+    this.faceQuality,
+  });
+
+  String get similarityText => '${(similarity * 100).toStringAsFixed(1)}%';
+
+  bool get hasError => error != null;
+}
 
 class FaceAuthService {
-  static final FaceAuthService _instance = FaceAuthService._internal();
+  static final FaceAuthService._internal();
   factory FaceAuthService() => _instance;
 
   final UserFaceService userFaceService = UserFaceService();
   final FaceAuthRecordService faceAuthRecordService = FaceAuthRecordService();
+  final FaceDetectionService _detectionService = FaceDetectionService();
   final Logger _logger = Logger();
-  final Uuid _uuid = Uuid();
+  final Uuid _uuid = const Uuid();
 
   static const double _similarityThreshold = 0.85;
   static const int _featureVectorSize = 128;
-  static const int _enrollMinQuality = 50;
+  static const int _enrollMinQuality = 60;
+  static const double _minLivenessThreshold = 0.7;
 
   FaceAuthService._internal();
 
-  List<double> extractFaceFeatures(Uint8List imageBytes) {
-    try {
-      img.Image? image = img.decodeImage(imageBytes);
-      if (image == null) {
-        return List.generate(_featureVectorSize, (_) => 0.0);
-      }
-
-      img.Image gray = img.grayscale(image);
-      img.Image resized = img.copyResize(gray, width: 64, height: 64);
-
-      List<double> features = List.generate(_featureVectorSize, (_) => 0.0);
-      int gridSize = 8;
-      int cellSize = 8;
-
-      for (int gy = 0; gy < gridSize; gy++) {
-        for (int gx = 0; gx < gridSize; gx++) {
-          double sum = 0.0;
-          double sumSq = 0.0;
-
-          for (int cy = 0; cy < cellSize; cy++) {
-            for (int cx = 0; cx < cellSize; cx++) {
-              int px = gx * cellSize + cx;
-              int py = gy * cellSize + cy;
-              int pixel = resized.getPixel(px, py);
-              double brightness = (pixel & 0xFF) / 255.0;
-              sum += brightness;
-              sumSq += brightness * brightness;
-            }
-          }
-
-          int idx = (gy * gridSize + gx) * 2;
-          features[idx] = sum / (cellSize * cellSize);
-          features[idx + 1] = sqrt(max(0.0, sumSq / (cellSize * cellSize) - features[idx] * features[idx]));
-        }
-      }
-
-      double mean = features.reduce((a, b) => a + b) / features.length;
-      double variance = features.map((v) => (v - mean) * (v - mean)).reduce((a, b) => a + b) / features.length;
-      double std = sqrt(variance);
-
-      if (std > 0) {
-        features = features.map((v) => (v - mean) / std).toList();
-      }
-
-      return features;
-    } catch (e) {
-      _logger.e('提取人脸特征失败: $e');
-      return List.generate(_featureVectorSize, (_) => 0.0);
-    }
-  }
-
-  int calculateQuality(Uint8List imageBytes) {
-    try {
-      img.Image? image = img.decodeImage(imageBytes);
-      if (image == null) return 0;
-
-      double brightnessSum = 0.0;
-      double contrastSum = 0.0;
-      int count = 0;
-
-      for (int y = 0; y < image.height; y += 4) {
-        for (int x = 0; x < image.width; x += 4) {
-          int pixel = image.getPixel(x, y);
-          double r = ((pixel >> 16) & 0xFF) / 255.0;
-          double g = ((pixel >> 8) & 0xFF) / 255.0;
-          double b = (pixel & 0xFF) / 255.0;
-          double lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          brightnessSum += lum;
-          count++;
-        }
-      }
-
-      double avgBrightness = brightnessSum / count;
-      double brightnessScore = 1 - (avgBrightness - 0.5).abs() * 2;
-      brightnessScore = brightnessScore.clamp(0.0, 1.0);
-
-      for (int y = 0; y < image.height - 4; y += 4) {
-        for (int x = 0; x < image.width - 4; x += 4) {
-          int p1 = image.getPixel(x, y);
-          int p2 = image.getPixel(x + 4, y);
-          double l1 = ((p1 & 0xFF)) / 255.0;
-          double l2 = ((p2 & 0xFF)) / 255.0;
-          contrastSum += (l1 - l2).abs();
-        }
-      }
-
-      double avgContrast = contrastSum / count;
-      double contrastScore = (avgContrast * 5).clamp(0.0, 1.0);
-
-      double resolutionScore = ((image.width * image.height) / (1024 * 1024)).clamp(0.0, 1.0);
-
-      double quality = (brightnessScore * 0.3 + contrastScore * 0.4 + resolutionScore * 0.3) * 100;
-      return quality.round().clamp(0, 100);
-    } catch (e) {
-      _logger.e('计算图像质量失败: $e');
-      return 0;
-    }
-  }
-
-  double calculateSimilarity(List<double> features1, List<double> features2) {
-    if (features1.length != features2.length) return 0.0;
-
-    double dotProduct = 0.0;
-    double norm1 = 0.0;
-    double norm2 = 0.0;
-
-    for (int i = 0; i < features1.length; i++) {
-      dotProduct += features1[i] * features2[i];
-      norm1 += features1[i] * features1[i];
-      norm2 += features2[i] * features2[i];
-    }
-
-    if (norm1 == 0 || norm2 == 0) return 0.0;
-    return dotProduct / (sqrt(norm1) * sqrt(norm2));
-  }
-
-  String encodeFeatures(List<double> features) {
-    return base64Encode(Float64List.fromList(features).buffer.asUint8List());
-  }
-
-  List<double> decodeFeatures(String encoded) {
-    try {
-      Uint8List bytes = base64Decode(encoded);
-      return Float64List.view(bytes.buffer).toList();
-    } catch (e) {
-      _logger.e('解码特征数据失败: $e');
-      return List.generate(_featureVectorSize, (_) => 0.0);
-    }
-  }
+  double get threshold => _similarityThreshold;
+  double get livenessThreshold => _minLivenessThreshold;
+  int get featureSize => _featureVectorSize;
+  int get minEnrollQuality => _enrollMinQuality;
 
   Future<UserFaceModel?> enrollFace({
     required int userId,
@@ -166,12 +70,21 @@ class FaceAuthService {
     String? deviceId,
   }) async {
     try {
-      int quality = calculateQuality(faceImage);
-      if (quality < _enrollMinQuality) {
-        throw Exception('人脸图像质量不足，请确保光线充足且面部清晰 (质量分: $quality)');
+      final detectResult = await _detectionService.detectAndExtract(
+        imageBytes: faceImage,
+        requireLiveness: true,
+        minQuality: _enrollMinQuality,
+      );
+
+      if (!detectResult.success) {
+        throw Exception(detectResult.error ?? '人脸检测失败');
       }
 
-      List<double> features = extractFaceFeatures(faceImage);
+      List<double> features = detectResult.faceFeatures ??
+          _detectionService.extractFaceFeatures(faceImage);
+      Uint8List? croppedImage =
+          detectResult.croppedFaceImage ?? faceImage;
+
       String featureStr = encodeFeatures(features);
       String faceId = _uuid.v4().replaceAll('-', '');
 
@@ -182,7 +95,7 @@ class FaceAuthService {
         faceFeature: featureStr,
         faceImage: faceImagePath,
         status: 1,
-        enrollQuality: quality,
+        enrollQuality: detectResult.faceQuality,
         deviceId: deviceId,
         enterpriseId: enterpriseId,
         createTime: DateTime.now(),
@@ -194,7 +107,8 @@ class FaceAuthService {
 
       await userFaceService.syncFaceToServer(face);
 
-      _logger.i('人脸录入成功，faceId: $faceId, 质量分: $quality');
+      _logger.i(
+          '人脸录入成功，faceId: $faceId, 质量分: ${detectResult.faceQuality}, 活体分: ${(detectResult.livenessScore * 100).toInt()}%');
       return face;
     } catch (e) {
       _logger.e('人脸录入失败: $e');
@@ -210,9 +124,27 @@ class FaceAuthService {
     String? businessNo,
     String? deviceId,
     int? enterpriseId,
+    bool requireLiveness = true,
   }) async {
     try {
-      List<double> probeFeatures = extractFaceFeatures(faceImage);
+      final detectResult = await _detectionService.detectAndExtract(
+        imageBytes: faceImage,
+        requireLiveness: requireLiveness,
+        minQuality: 50,
+      );
+
+      if (!detectResult.success) {
+        return FaceAuthResult(
+          success: false,
+          similarity: 0.0,
+          error: detectResult.error,
+          livenessScore: detectResult.livenessScore,
+          faceQuality: detectResult.faceQuality,
+        );
+      }
+
+      List<double> probeFeatures = detectResult.faceFeatures ??
+          _detectionService.extractFaceFeatures(faceImage);
       List<UserFaceModel> allFaces = await userFaceService.getEnabledFaceList();
 
       double bestSimilarity = 0.0;
@@ -228,7 +160,8 @@ class FaceAuthService {
         }
       }
 
-      bool isSuccess = bestSimilarity >= _similarityThreshold && bestMatch != null;
+      bool isSuccess =
+          bestSimilarity >= _similarityThreshold && bestMatch != null;
 
       String authId = _uuid.v4().replaceAll('-', '');
 
@@ -247,19 +180,23 @@ class FaceAuthService {
         deviceId: deviceId,
         authTime: DateTime.now(),
         enterpriseId: enterpriseId,
+        livenessScore: detectResult.livenessScore,
+        faceQuality: detectResult.faceQuality,
       );
 
       await faceAuthRecordService.saveAuthRecord(record);
 
       _logger.i(
-          '人脸认证完成，结果: ${isSuccess ? "成功" : "失败"}, 相似度: ${(bestSimilarity * 100).toStringAsFixed(1)}%, 用户: ${bestMatch?.username ?? "未知"}');
+          '人脸认证完成，结果: ${isSuccess ? "成功" : "失败"}, 相似度: ${(bestSimilarity * 100).toStringAsFixed(1)}%, 用户: ${bestMatch?.username ?? "未知"}, 活体: ${(detectResult.livenessScore * 100).toInt()}%');
 
       return FaceAuthResult(
         success: isSuccess,
         similarity: bestSimilarity,
         userFace: bestMatch,
         authId: authId,
-        capturedImage: faceImage,
+        capturedImage: detectResult.croppedFaceImage ?? faceImage,
+        livenessScore: detectResult.livenessScore,
+        faceQuality: detectResult.faceQuality,
       );
     } catch (e) {
       _logger.e('人脸认证失败: $e');
@@ -268,7 +205,7 @@ class FaceAuthService {
         similarity: 0.0,
         userFace: null,
         authId: null,
-        error: e.toString(),
+        error: e.toString().replaceAll('Exception: ', ''),
       );
     }
   }
@@ -282,14 +219,34 @@ class FaceAuthService {
     String? businessNo,
     String? deviceId,
     int? enterpriseId,
+    bool requireLiveness = true,
   }) async {
     try {
+      final detectResult = await _detectionService.detectAndExtract(
+        imageBytes: faceImage,
+        requireLiveness: requireLiveness,
+        minQuality: 50,
+      );
+
+      if (!detectResult.success) {
+        return FaceAuthResult(
+          success: false,
+          similarity: 0.0,
+          error: detectResult.error,
+          livenessScore: detectResult.livenessScore,
+          faceQuality: detectResult.faceQuality,
+        );
+      }
+
       UserFaceModel? userFace = await userFaceService.getByUsername(username);
-      if (userFace == null || userFace.faceFeature == null || userFace.faceFeature!.isEmpty) {
+      if (userFace == null ||
+          userFace.faceFeature == null ||
+          userFace.faceFeature!.isEmpty) {
         throw Exception('用户尚未录入人脸信息');
       }
 
-      List<double> probeFeatures = extractFaceFeatures(faceImage);
+      List<double> probeFeatures = detectResult.faceFeatures ??
+          _detectionService.extractFaceFeatures(faceImage);
       List<double> enrolledFeatures = decodeFeatures(userFace.faceFeature!);
       double similarity = calculateSimilarity(probeFeatures, enrolledFeatures);
       bool isSuccess = similarity >= _similarityThreshold;
@@ -311,19 +268,23 @@ class FaceAuthService {
         deviceId: deviceId,
         authTime: DateTime.now(),
         enterpriseId: enterpriseId,
+        livenessScore: detectResult.livenessScore,
+        faceQuality: detectResult.faceQuality,
       );
 
       await faceAuthRecordService.saveAuthRecord(record);
 
       _logger.i(
-          '指定用户人脸认证完成，用户: $username, 结果: ${isSuccess ? "成功" : "失败"}, 相似度: ${(similarity * 100).toStringAsFixed(1)}%');
+          '指定用户人脸认证完成，用户: $username, 结果: ${isSuccess ? "成功" : "失败"}, 相似度: ${(similarity * 100).toStringAsFixed(1)}%, 活体: ${(detectResult.livenessScore * 100).toInt()}%');
 
       return FaceAuthResult(
         success: isSuccess,
         similarity: similarity,
         userFace: userFace,
         authId: authId,
-        capturedImage: faceImage,
+        capturedImage: detectResult.croppedFaceImage ?? faceImage,
+        livenessScore: detectResult.livenessScore,
+        faceQuality: detectResult.faceQuality,
       );
     } catch (e) {
       _logger.e('指定用户人脸认证失败: $e');
@@ -332,7 +293,7 @@ class FaceAuthService {
         similarity: 0.0,
         userFace: null,
         authId: null,
-        error: e.toString(),
+        error: e.toString().replaceAll('Exception: ', ''),
       );
     }
   }
@@ -340,7 +301,8 @@ class FaceAuthService {
   Future<bool> hasEnrolledFace(String username) async {
     try {
       UserFaceModel? face = await userFaceService.getByUsername(username);
-      return face != null && face.isEnabled && (face.faceFeature?.isNotEmpty ?? false);
+      return face != null &&
+          face.isEnabled && (face.faceFeature?.isNotEmpty ?? false);
     } catch (e) {
       return false;
     }
@@ -351,34 +313,48 @@ class FaceAuthService {
       await userFaceService.saveFace(UserFaceModel(faceId: faceId, status: 0));
       return true;
     } catch (e) {
-      _logger.e('删除人脸信息失败: $e');
+      _logger.e('删除人脸失败: $e');
       return false;
     }
   }
 
-  double get threshold => _similarityThreshold;
-  int get featureSize => _featureVectorSize;
-  int get minEnrollQuality => _enrollMinQuality;
-}
+  List<double> extractFaceFeatures(Uint8List imageBytes) {
+    return _detectionService.extractFaceFeatures(imageBytes);
+  }
 
-class FaceAuthResult {
-  final bool success;
-  final double similarity;
-  final UserFaceModel? userFace;
-  final String? authId;
-  final String? error;
-  final Uint8List? capturedImage;
+  int calculateQuality(Uint8List imageBytes) {
+    return _detectionService.calculateQuality(imageBytes);
+  }
 
-  FaceAuthResult({
-    required this.success,
-    required this.similarity,
-    this.userFace,
-    this.authId,
-    this.error,
-    this.capturedImage,
-  });
+  double calculateSimilarity(List<double> features1, List<double> features2) {
+    if (features1.length != features2.length) return 0.0;
 
-  String get similarityText => '${(similarity * 100).toStringAsFixed(1)}%';
+    double dotProduct = 0.0;
+    double norm1 = 0.0;
+    double norm2 = 0.0;
 
-  bool get hasError => error != null;
+    for (int i = 0; i < features1.length; i++) {
+      dotProduct += features1[i] * features2[i];
+      norm1 += features1[i] * features1[i];
+      norm2 += features2[i] * features2[i];
+    }
+
+    if (norm1 == 0 || norm2 == 0) return 0.0;
+    return dotProduct / (sqrt(norm1) * sqrt(norm2));
+  }
+
+  String encodeFeatures(List<double> features) {
+    return base64Encode(
+        Float64List.fromList(features).buffer.asUint8List());
+  }
+
+  List<double> decodeFeatures(String encoded) {
+    try {
+      Uint8List bytes = base64Decode(encoded);
+      return Float64List.view(bytes.buffer).toList();
+    } catch (e) {
+      _logger.e('解码特征数据失败: $e');
+      return List.generate(_featureVectorSize, (_) => 0.0);
+    }
+  }
 }

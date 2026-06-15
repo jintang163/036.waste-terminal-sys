@@ -68,6 +68,15 @@ class DatabaseHelper {
       await batch.commit(noResult: true);
       _logger.i('数据库升级到v3完成，已添加入库出库人脸追溯字段');
     }
+    if (oldVersion < 4) {
+      Batch batch = db.batch();
+      batch.execute('ALTER TABLE ${DatabaseTables.tableFaceAuthRecord} ADD COLUMN liveness_score REAL');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableFaceAuthRecord} ADD COLUMN face_quality INTEGER');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableFaceAuthRecord} ADD COLUMN sync_status INTEGER DEFAULT 0');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableFaceAuthRecord} ADD COLUMN sync_time TEXT');
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v4完成，已添加活体检测和同步字段');
+    }
   }
 
   Future<void> _onDowngrade(Database db, int oldVersion, int newVersion) async {

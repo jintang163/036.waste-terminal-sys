@@ -87,6 +87,8 @@ public class AuthController {
         return Result.success(loginUser);
     }
 
+    private static final int FACE_AUTH_EXPIRE_MINUTES = 5;
+
     @PostMapping("/face-login")
     public Result<LoginUser> faceLogin(@RequestBody @Valid FaceLoginDTO faceLoginDTO, HttpServletRequest request) {
         LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();
@@ -111,14 +113,26 @@ public class AuthController {
             return Result.fail(ResultCode.USER_PASSWORD_ERROR, "用户未录入人脸信息");
         }
 
-        if (faceLoginDTO.getFaceAuthId() != null && !faceLoginDTO.getFaceAuthId().isEmpty()) {
-            LambdaQueryWrapper<FaceAuthRecord> authWrapper = new LambdaQueryWrapper<>();
-            authWrapper.eq(FaceAuthRecord::getAuthId, faceLoginDTO.getFaceAuthId())
-                    .eq(FaceAuthRecord::getAuthStatus, 1);
-            FaceAuthRecord authRecord = faceAuthRecordService.getOne(authWrapper, false);
-            if (authRecord == null) {
-                log.warn("人脸认证记录不存在或认证失败，faceAuthId: {}", faceLoginDTO.getFaceAuthId());
-            }
+        if (faceLoginDTO.getFaceAuthId() == null || faceLoginDTO.getFaceAuthId().isEmpty()) {
+            return Result.fail(ResultCode.USER_PASSWORD_ERROR, "人脸认证记录不能为空");
+        }
+
+        LambdaQueryWrapper<FaceAuthRecord> authWrapper = new LambdaQueryWrapper<>();
+        authWrapper.eq(FaceAuthRecord::getAuthId, faceLoginDTO.getFaceAuthId())
+                .eq(FaceAuthRecord::getAuthStatus, 1)
+                .eq(FaceAuthRecord::getUserId, user.getId())
+                .eq(FaceAuthRecord::getAuthType, "login");
+        FaceAuthRecord authRecord = faceAuthRecordService.getOne(authWrapper, false);
+
+        if (authRecord == null) {
+            log.warn("人脸认证记录不存在或认证失败，faceAuthId: {}", faceLoginDTO.getFaceAuthId());
+            return Result.fail(ResultCode.USER_PASSWORD_ERROR, "人脸认证记录无效");
+        }
+
+        LocalDateTime expireTime = authRecord.getAuthTime().plusMinutes(FACE_AUTH_EXPIRE_MINUTES);
+        if (LocalDateTime.now().isAfter(expireTime)) {
+            log.warn("人脸认证记录已过期，faceAuthId: {}, authTime: {}", faceLoginDTO.getFaceAuthId(), authRecord.getAuthTime());
+            return Result.fail(ResultCode.USER_PASSWORD_ERROR, "人脸认证已过期，请重新验证");
         }
 
         LoginUser loginUser = new LoginUser();
@@ -138,7 +152,7 @@ public class AuthController {
         user.setLastLoginIp(request.getRemoteAddr());
         sysUserMapper.updateById(user);
 
-        log.info("人脸登录成功，用户: {}, faceAuthId: {}", user.getUsername(), faceLoginDTO.getFaceAuthId());
+        log.info("人脸登录成功，用户: {}, faceAuthId: {}, 相似度: {}", user.getUsername(), faceLoginDTO.getFaceAuthId(), authRecord.getSimilarity());
 
         return Result.success(loginUser);
     }

@@ -567,24 +567,57 @@ class _WasteInPageState extends State<WasteInPage> {
     FaceAuthResult? authResult;
     final recordNo = UuidUtil.generateWasteInNo();
 
-    if (hasEnrolledFace) {
-      authResult = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (ctx) => FaceVerifyPage(
-            authType: 'waste_in',
-            businessType: 'waste_in',
-            businessNo: recordNo,
-            targetUsername: currentUsername,
-            autoNavigateOnSuccess: true,
-          ),
+    if (!hasEnrolledFace) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('需要人脸验证', style: AppTextStyle.title),
+          content: Text('为满足追溯要求，入库操作前必须先完成人脸录入。是否立即前往录入人脸？',
+              style: AppTextStyle.body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('去录入', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
         ),
       );
 
-      if (authResult == null || !authResult.success) {
-        ToastUtil.showWarning('人脸验证未通过，无法保存');
+      if (confirm == true) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (ctx) => const FaceEnrollPage()),
+        );
+        if (result != true) {
+          ToastUtil.showWarning('请先完成人脸录入');
+          return;
+        }
+      } else {
+        ToastUtil.showWarning('请先完成人脸录入，才能进行入库操作');
         return;
       }
+    }
+
+    authResult = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => FaceVerifyPage(
+          authType: 'waste_in',
+          businessType: 'waste_in',
+          businessNo: recordNo,
+          targetUsername: currentUsername,
+          autoNavigateOnSuccess: true,
+        ),
+      ),
+    );
+
+    if (authResult == null || !authResult.success) {
+      ToastUtil.showWarning('人脸验证未通过，无法保存');
+      return;
     }
 
     setState(() {

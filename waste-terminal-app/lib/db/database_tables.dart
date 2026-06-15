@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 3;
+  static const int dbVersion = 4;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -299,6 +299,8 @@ class DatabaseTables {
       real_name TEXT,
       face_id TEXT,
       similarity REAL,
+      liveness_score REAL,
+      face_quality INTEGER,
       auth_status INTEGER DEFAULT 0,
       auth_type TEXT,
       business_type TEXT,

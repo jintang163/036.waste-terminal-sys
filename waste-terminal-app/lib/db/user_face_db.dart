@@ -1,6 +1,7 @@
 import 'package:logger/logger.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/user_face_model.dart';
 import 'database_helper.dart';
 import 'database_tables.dart';
 
@@ -12,6 +13,20 @@ class UserFaceDb {
   final Logger _logger = Logger();
 
   UserFaceDb._internal();
+
+  Future<int> insertUserFace(UserFaceModel face) async {
+    try {
+      final db = await _dbHelper.database;
+      final dbMap = face.toDbMap();
+      int id = await db.insert(DatabaseTables.tableUserFace, dbMap,
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      _logger.d('插入人脸信息成功: $id');
+      return id;
+    } catch (e) {
+      _logger.e('插入人脸信息失败: $e');
+      rethrow;
+    }
+  }
 
   Future<int> insert(Map<String, dynamic> face) async {
     try {
@@ -42,6 +57,22 @@ class UserFaceDb {
     }
   }
 
+  Future<List<UserFaceModel>> queryAllModels() async {
+    try {
+      final db = await _dbHelper.database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        DatabaseTables.tableUserFace,
+        where: 'is_deleted = ?',
+        whereArgs: [0],
+        orderBy: 'create_time DESC',
+      );
+      return maps.map((map) => UserFaceModel.fromDbMap(map)).toList();
+    } catch (e) {
+      _logger.e('查询人脸信息列表失败: $e');
+      rethrow;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> queryAll() async {
     try {
       final db = await _dbHelper.database;
@@ -57,6 +88,22 @@ class UserFaceDb {
     }
   }
 
+  Future<List<UserFaceModel>> queryEnabledModels() async {
+    try {
+      final db = await _dbHelper.database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        DatabaseTables.tableUserFace,
+        where: 'status = ? AND is_deleted = ?',
+        whereArgs: [1, 0],
+        orderBy: 'create_time DESC',
+      );
+      return maps.map((map) => UserFaceModel.fromDbMap(map)).toList();
+    } catch (e) {
+      _logger.e('查询启用人脸失败: $e');
+      rethrow;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> queryEnabled() async {
     try {
       final db = await _dbHelper.database;
@@ -68,6 +115,22 @@ class UserFaceDb {
       );
     } catch (e) {
       _logger.e('查询启用人脸失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<UserFaceModel?> queryModelByUserId(int userId) async {
+    try {
+      final db = await _dbHelper.database;
+      List<Map<String, dynamic>> result = await db.query(
+        DatabaseTables.tableUserFace,
+        where: 'user_id = ? AND is_deleted = ?',
+        whereArgs: [userId, 0],
+        limit: 1,
+      );
+      return result.isNotEmpty ? UserFaceModel.fromDbMap(result.first) : null;
+    } catch (e) {
+      _logger.e('根据用户ID查询人脸失败: $e');
       rethrow;
     }
   }
@@ -88,6 +151,22 @@ class UserFaceDb {
     }
   }
 
+  Future<UserFaceModel?> queryModelByUsername(String username) async {
+    try {
+      final db = await _dbHelper.database;
+      List<Map<String, dynamic>> result = await db.query(
+        DatabaseTables.tableUserFace,
+        where: 'username = ? AND is_deleted = ?',
+        whereArgs: [username, 0],
+        limit: 1,
+      );
+      return result.isNotEmpty ? UserFaceModel.fromDbMap(result.first) : null;
+    } catch (e) {
+      _logger.e('根据用户名查询人脸失败: $e');
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>?> queryByUsername(String username) async {
     try {
       final db = await _dbHelper.database;
@@ -100,6 +179,22 @@ class UserFaceDb {
       return result.isNotEmpty ? result.first : null;
     } catch (e) {
       _logger.e('根据用户名查询人脸失败: $e');
+      rethrow;
+    }
+  }
+
+  Future<UserFaceModel?> queryModelByFaceId(String faceId) async {
+    try {
+      final db = await _dbHelper.database;
+      List<Map<String, dynamic>> result = await db.query(
+        DatabaseTables.tableUserFace,
+        where: 'face_id = ? AND is_deleted = ?',
+        whereArgs: [faceId, 0],
+        limit: 1,
+      );
+      return result.isNotEmpty ? UserFaceModel.fromDbMap(result.first) : null;
+    } catch (e) {
+      _logger.e('根据faceId查询人脸失败: $e');
       rethrow;
     }
   }

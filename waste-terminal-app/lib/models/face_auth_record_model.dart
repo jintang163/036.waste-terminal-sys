@@ -6,6 +6,8 @@ class FaceAuthRecordModel {
   final String? realName;
   final String? faceId;
   final double? similarity;
+  final double? livenessScore;
+  final int? faceQuality;
   final int? authStatus;
   final String? authType;
   final String? businessType;
@@ -14,6 +16,8 @@ class FaceAuthRecordModel {
   final String? deviceId;
   final String? ip;
   final DateTime? authTime;
+  final int? syncStatus;
+  final DateTime? syncTime;
   final int? enterpriseId;
   final String? remark;
   final DateTime? createTime;
@@ -27,6 +31,8 @@ class FaceAuthRecordModel {
     this.realName,
     this.faceId,
     this.similarity,
+    this.livenessScore,
+    this.faceQuality,
     this.authStatus,
     this.authType,
     this.businessType,
@@ -35,6 +41,8 @@ class FaceAuthRecordModel {
     this.deviceId,
     this.ip,
     this.authTime,
+    this.syncStatus,
+    this.syncTime,
     this.enterpriseId,
     this.remark,
     this.createTime,
@@ -50,6 +58,8 @@ class FaceAuthRecordModel {
       realName: json['realName'] as String?,
       faceId: json['faceId'] as String?,
       similarity: (json['similarity'] as num?)?.toDouble(),
+      livenessScore: (json['livenessScore'] as num?)?.toDouble(),
+      faceQuality: json['faceQuality'] as int?,
       authStatus: json['authStatus'] as int?,
       authType: json['authType'] as String?,
       businessType: json['businessType'] as String?,
@@ -59,6 +69,10 @@ class FaceAuthRecordModel {
       ip: json['ip'] as String?,
       authTime: json['authTime'] != null
           ? DateTime.tryParse(json['authTime'] as String)
+          : null,
+      syncStatus: json['syncStatus'] as int?,
+      syncTime: json['syncTime'] != null
+          ? DateTime.tryParse(json['syncTime'] as String)
           : null,
       enterpriseId: json['enterpriseId'] as int?,
       remark: json['remark'] as String?,
@@ -80,6 +94,8 @@ class FaceAuthRecordModel {
       'realName': realName,
       'faceId': faceId,
       'similarity': similarity,
+      'livenessScore': livenessScore,
+      'faceQuality': faceQuality,
       'authStatus': authStatus,
       'authType': authType,
       'businessType': businessType,
@@ -88,11 +104,77 @@ class FaceAuthRecordModel {
       'deviceId': deviceId,
       'ip': ip,
       'authTime': authTime?.toIso8601String(),
+      'syncStatus': syncStatus,
+      'syncTime': syncTime?.toIso8601String(),
       'enterpriseId': enterpriseId,
       'remark': remark,
       'createTime': createTime?.toIso8601String(),
       'updateTime': updateTime?.toIso8601String(),
     };
+  }
+
+  Map<String, dynamic> toDbMap() {
+    return {
+      'id': id,
+      'auth_id': authId,
+      'user_id': userId,
+      'username': username,
+      'real_name': realName,
+      'face_id': faceId,
+      'similarity': similarity,
+      'liveness_score': livenessScore,
+      'face_quality': faceQuality,
+      'auth_status': authStatus,
+      'auth_type': authType,
+      'business_type': businessType,
+      'business_id': businessId,
+      'business_no': businessNo,
+      'device_id': deviceId,
+      'ip': ip,
+      'auth_time': authTime?.toIso8601String(),
+      'sync_status': syncStatus ?? 0,
+      'sync_time': syncTime?.toIso8601String(),
+      'enterprise_id': enterpriseId,
+      'remark': remark,
+      'create_time': createTime?.toIso8601String(),
+      'update_time': updateTime?.toIso8601String(),
+    };
+  }
+
+  factory FaceAuthRecordModel.fromDbMap(Map<String, dynamic> map) {
+    return FaceAuthRecordModel(
+      id: map['id'] as int?,
+      authId: map['auth_id'] as String?,
+      userId: map['user_id'] as int?,
+      username: map['username'] as String?,
+      realName: map['real_name'] as String?,
+      faceId: map['face_id'] as String?,
+      similarity: (map['similarity'] as num?)?.toDouble(),
+      livenessScore: (map['liveness_score'] as num?)?.toDouble(),
+      faceQuality: map['face_quality'] as int?,
+      authStatus: map['auth_status'] as int?,
+      authType: map['auth_type'] as String?,
+      businessType: map['business_type'] as String?,
+      businessId: map['business_id'] as String?,
+      businessNo: map['business_no'] as String?,
+      deviceId: map['device_id'] as String?,
+      ip: map['ip'] as String?,
+      authTime: map['auth_time'] != null
+          ? DateTime.tryParse(map['auth_time'] as String)
+          : null,
+      syncStatus: map['sync_status'] as int?,
+      syncTime: map['sync_time'] != null
+          ? DateTime.tryParse(map['sync_time'] as String)
+          : null,
+      enterpriseId: map['enterprise_id'] as int?,
+      remark: map['remark'] as String?,
+      createTime: map['create_time'] != null
+          ? DateTime.tryParse(map['create_time'] as String)
+          : null,
+      updateTime: map['update_time'] != null
+          ? DateTime.tryParse(map['update_time'] as String)
+          : null,
+    );
   }
 
   FaceAuthRecordModel copyWith({
@@ -103,6 +185,8 @@ class FaceAuthRecordModel {
     String? realName,
     String? faceId,
     double? similarity,
+    double? livenessScore,
+    int? faceQuality,
     int? authStatus,
     String? authType,
     String? businessType,
@@ -111,6 +195,8 @@ class FaceAuthRecordModel {
     String? deviceId,
     String? ip,
     DateTime? authTime,
+    int? syncStatus,
+    DateTime? syncTime,
     int? enterpriseId,
     String? remark,
     DateTime? createTime,
@@ -124,6 +210,8 @@ class FaceAuthRecordModel {
       realName: realName ?? this.realName,
       faceId: faceId ?? this.faceId,
       similarity: similarity ?? this.similarity,
+      livenessScore: livenessScore ?? this.livenessScore,
+      faceQuality: faceQuality ?? this.faceQuality,
       authStatus: authStatus ?? this.authStatus,
       authType: authType ?? this.authType,
       businessType: businessType ?? this.businessType,
@@ -132,6 +220,8 @@ class FaceAuthRecordModel {
       deviceId: deviceId ?? this.deviceId,
       ip: ip ?? this.ip,
       authTime: authTime ?? this.authTime,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncTime: syncTime ?? this.syncTime,
       enterpriseId: enterpriseId ?? this.enterpriseId,
       remark: remark ?? this.remark,
       createTime: createTime ?? this.createTime,

@@ -18,8 +18,7 @@ class UserFaceService {
 
   Future<List<UserFaceModel>> getFaceList() async {
     try {
-      final list = await _userFaceDb.queryAll();
-      return list.map((e) => UserFaceModel.fromJson(e)).toList();
+      return await _userFaceDb.queryAllModels();
     } catch (e) {
       _logger.e('获取本地人脸列表失败: $e');
       rethrow;
@@ -28,8 +27,7 @@ class UserFaceService {
 
   Future<List<UserFaceModel>> getEnabledFaceList() async {
     try {
-      final list = await _userFaceDb.queryEnabled();
-      return list.map((e) => UserFaceModel.fromJson(e)).toList();
+      return await _userFaceDb.queryEnabledModels();
     } catch (e) {
       _logger.e('获取启用的人脸列表失败: $e');
       rethrow;
@@ -38,8 +36,7 @@ class UserFaceService {
 
   Future<UserFaceModel?> getByUserId(int userId) async {
     try {
-      final data = await _userFaceDb.queryByUserId(userId);
-      return data != null ? UserFaceModel.fromJson(data) : null;
+      return await _userFaceDb.queryModelByUserId(userId);
     } catch (e) {
       _logger.e('根据用户ID获取人脸失败: $e');
       return null;
@@ -48,8 +45,7 @@ class UserFaceService {
 
   Future<UserFaceModel?> getByUsername(String username) async {
     try {
-      final data = await _userFaceDb.queryByUsername(username);
-      return data != null ? UserFaceModel.fromJson(data) : null;
+      return await _userFaceDb.queryModelByUsername(username);
     } catch (e) {
       _logger.e('根据用户名获取人脸失败: $e');
       return null;
@@ -58,8 +54,7 @@ class UserFaceService {
 
   Future<UserFaceModel?> getByFaceId(String faceId) async {
     try {
-      final data = await _userFaceDb.queryByFaceId(faceId);
-      return data != null ? UserFaceModel.fromJson(data) : null;
+      return await _userFaceDb.queryModelByFaceId(faceId);
     } catch (e) {
       _logger.e('根据faceId获取人脸失败: $e');
       return null;
@@ -68,7 +63,7 @@ class UserFaceService {
 
   Future<int> saveFace(UserFaceModel face) async {
     try {
-      return await _userFaceDb.insert(face.toJson());
+      return await _userFaceDb.insertUserFace(face);
     } catch (e) {
       _logger.e('保存人脸信息失败: $e');
       rethrow;
@@ -77,7 +72,7 @@ class UserFaceService {
 
   Future<void> batchSaveFace(List<UserFaceModel> faceList) async {
     try {
-      await _userFaceDb.batchInsert(faceList.map((e) => e.toJson()).toList());
+      await _userFaceDb.batchInsert(faceList.map((e) => e.toDbMap()).toList());
     } catch (e) {
       _logger.e('批量保存人脸信息失败: $e');
       rethrow;
@@ -86,7 +81,7 @@ class UserFaceService {
 
   Future<void> replaceAllFace(List<UserFaceModel> faceList) async {
     try {
-      await _userFaceDb.replaceAll(faceList.map((e) => e.toJson()).toList());
+      await _userFaceDb.replaceAll(faceList.map((e) => e.toDbMap()).toList());
     } catch (e) {
       _logger.e('替换人脸信息失败: $e');
       rethrow;
