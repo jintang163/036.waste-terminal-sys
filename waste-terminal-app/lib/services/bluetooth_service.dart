@@ -18,6 +18,9 @@ enum BluetoothDeviceType {
   /// 地磅
   scale,
 
+  /// RFID读卡器
+  rfid,
+
   /// 其他
   other,
 }
@@ -67,6 +70,12 @@ class BluetoothDeviceInfo {
         upperName.contains('称重') ||
         upperName.contains('SCALES')) {
       return BluetoothDeviceType.scale;
+    }
+    if (upperName.contains('RFID') ||
+        upperName.contains('UHF') ||
+        upperName.contains('READER') ||
+        upperName.contains('读卡')) {
+      return BluetoothDeviceType.rfid;
     }
     return BluetoothDeviceType.other;
   }
@@ -238,9 +247,12 @@ class BluetoothService {
       StreamController<double>.broadcast();
   final StreamController<String> _scaleDataStreamController =
       StreamController<String>.broadcast();
+  final StreamController<String> _rfidTagStreamController =
+      StreamController<String>.broadcast();
 
   final List<BluetoothDeviceInfo> _scanResults = [];
   final List<int> _weightBuffer = [];
+  final List<int> _rfidBuffer = [];
   StreamSubscription<List<int>>? _notifySubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
 
@@ -252,6 +264,8 @@ class BluetoothService {
       _isConnected && _connectedDeviceType == BluetoothDeviceType.printer;
   bool get isScaleConnected =>
       _isConnected && _connectedDeviceType == BluetoothDeviceType.scale;
+  bool get isRfidConnected =>
+      _isConnected && _connectedDeviceType == BluetoothDeviceType.rfid;
   BluetoothDevice? get connectedDevice => _connectedDevice;
   BluetoothDeviceType? get connectedDeviceType => _connectedDeviceType;
   String? get connectedDeviceName => _connectedDevice?.localName.isNotEmpty == true
@@ -265,6 +279,7 @@ class BluetoothService {
   Stream<List<int>> get dataReceivedStream => _dataReceivedController.stream;
   Stream<double> get weightStream => _weightStreamController.stream;
   Stream<String> get scaleDataStream => _scaleDataStreamController.stream;
+  Stream<String> get rfidTagStream => _rfidTagStreamController.stream;
 
   /// 检查蓝牙是否支持
   Future<bool> isBluetoothAvailable() async {
@@ -433,6 +448,12 @@ class BluetoothService {
         await SpUtil.putString(
             StorageConstants.connectedScaleName, deviceName);
         _startListeningScaleData();
+      } else if (_connectedDeviceType == BluetoothDeviceType.rfid) {
+        await SpUtil.putString(StorageConstants.connectedRfidAddress,
+            device.remoteId.toString());
+        await SpUtil.putString(
+            StorageConstants.connectedRfidName, deviceName);
+        _startListeningRfidData();
       }
     } catch (e) {
       LoggerUtil.error('连接蓝牙设备失败', e);
@@ -527,6 +548,8 @@ class BluetoothService {
               _dataReceivedController.add(value);
               if (_connectedDeviceType == BluetoothDeviceType.scale) {
                 _parseScaleData(value);
+              } else if (_connectedDeviceType == BluetoothDeviceType.rfid) {
+                _parseRfidData(value);
               }
             }
           });
@@ -562,6 +585,7 @@ class BluetoothService {
       _isConnected = false;
       _connectedDeviceType = null;
       _weightBuffer.clear();
+      _rfidBuffer.clear();
       _connectionStateController.add(false);
     } catch (e) {
       LoggerUtil.error('断开蓝牙设备失败', e);
@@ -926,6 +950,107 @@ class BluetoothService {
     await sendData([0x01, 0x06, 0x00, 0x02, 0x00, 0x01, 0x69, 0xCB]);
   }
 
+  // ==================== RFID相关方法 ====================
+
+  Future<bool> autoConnectRfid() async {
+    try {
+      final address = SpUtil.getString(StorageConstants.connectedRfidAddress);
+      if (address == null || address.isEmpty) return false;
+      await connectByAddress(address);
+      return isRfidConnected;
+    } catch (e) {
+      LoggerUtil.warning('自动连接RFID读卡器失败: $e');
+      return false;
+    }
+  }
+
+  Future<bool> checkRfidReady() async {
+    if (!isRfidConnected) {
+      return await autoConnectRfid();
+    }
+    return true;
+  }
+
+  void _startListeningRfidData() {
+    _rfidBuffer.clear();
+    LoggerUtil.debug('开始监听RFID数据');
+  }
+
+  void _parseRfidData(List<int> data) {
+    _rfidBuffer.addAll(data);
+
+    while (_rfidBuffer.isNotEmpty) {
+      if (_rfidBuffer.length < 6) return;
+
+      int len = _rfidBuffer[2];
+      if (_rfidBuffer.length < len + 5) return;
+
+      final frame = _rfidBuffer.sublist(0, len + 5);
+      _rfidBuffer.removeRange(0, len + 5);
+
+      try {
+        final epc = _decodeRfidEpc(frame);
+        if (epc != null && epc.isNotEmpty) {
+          _rfidTagStreamController.add(epc);
+          LoggerUtil.debug('解析RFID标签: $epc');
+        }
+      } catch (e) {
+        LoggerUtil.debug('解析RFID数据帧失败: $e');
+      }
+    }
+  }
+
+  String? _decodeRfidEpc(List<int> frame) {
+    try {
+      if (frame.isEmpty) return null;
+
+      if (frame[0] == 0xBB) {
+        int dataLen = frame.length - 5;
+        if (dataLen <= 0) return null;
+        final epcBytes = frame.sublist(3, 3 + dataLen);
+        return epcBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+      }
+
+      final hexStr = frame.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+      final epcRegex = RegExp(r'[0-9A-Fa-f]{8,}');
+      final match = epcRegex.firstMatch(hexStr);
+      if (match != null) {
+        return match.group(0)!.toUpperCase();
+      }
+
+      try {
+        final str = String.fromCharCodes(frame.where((c) => c >= 32 && c <= 126));
+        if (str.isNotEmpty) return str;
+      } catch (_) {}
+
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> sendRfidSingleReadCommand() async {
+    if (!await checkRfidReady()) {
+      throw Exception('RFID读卡器未连接');
+    }
+    await sendData([0xBB, 0x00, 0x22, 0x00, 0x00, 0x22, 0x7E]);
+  }
+
+  Future<void> sendRfidStartInventoryCommand() async {
+    if (!await checkRfidReady()) {
+      throw Exception('RFID读卡器未连接');
+    }
+    _rfidBuffer.clear();
+    await sendData([0xBB, 0x00, 0x27, 0x00, 0x03, 0x22, 0x00, 0x00, 0x4C, 0x7E]);
+  }
+
+  Future<void> sendRfidStopInventoryCommand() async {
+    if (!await checkRfidReady()) {
+      throw Exception('RFID读卡器未连接');
+    }
+    await sendData([0xBB, 0x00, 0x28, 0x00, 0x00, 0x28, 0x7E]);
+  }
+
   /// 释放资源
   void dispose() {
     stopScan();
@@ -935,5 +1060,6 @@ class BluetoothService {
     _dataReceivedController.close();
     _weightStreamController.close();
     _scaleDataStreamController.close();
+    _rfidTagStreamController.close();
   }
 }

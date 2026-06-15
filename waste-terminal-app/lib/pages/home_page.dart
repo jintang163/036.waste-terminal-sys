@@ -291,6 +291,12 @@ class _HomePageState extends State<HomePage> {
         route: AppRoutes.wasteIn,
       ),
       _ActionItem(
+        icon: Icons.nfc,
+        label: 'RFID批量入库',
+        color: const Color(0xFF00897B),
+        route: AppRoutes.rfidBatchIn,
+      ),
+      _ActionItem(
         icon: Icons.arrow_circle_up,
         label: '危废出库',
         color: AppTheme.secondaryColor,

@@ -44,6 +44,12 @@ class StorageConstants {
   /// 已连接的地磅设备名称
   static const String connectedScaleName = 'connected_scale_name';
 
+  /// 已连接的RFID读卡器地址
+  static const String connectedRfidAddress = 'connected_rfid_address';
+
+  /// 已连接的RFID读卡器名称
+  static const String connectedRfidName = 'connected_rfid_name';
+
   /// 地磅连接方式（bluetooth/usb）
   static const String scaleConnectionType = 'scale_connection_type';
 
