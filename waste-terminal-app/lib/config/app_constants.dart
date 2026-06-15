@@ -64,6 +64,18 @@ class StorageConstants {
 
   /// 标签打印份数
   static const String labelPrintCopies = 'label_print_copies';
+
+  /// 地磅校准参数
+  static const String scaleCalibrationParams = 'scale_calibration_params';
+
+  /// 地磅零点值
+  static const String scaleZeroValue = 'scale_zero_value';
+
+  /// 地磅去皮值
+  static const String scaleTareValue = 'scale_tare_value';
+
+  /// 地磅校准历史
+  static const String scaleCalibrationHistory = 'scale_calibration_history';
 }
 
 /// 路由路径常量
@@ -94,6 +106,7 @@ class RouteConstants {
   static const String scan = '/scan';
   static const String bluetoothDevice = '/bluetooth_device';
   static const String scaleConfig = '/scale_config';
+  static const String scaleCalibration = '/scale_calibration';
   static const String mine = '/mine';
   static const String profile = '/profile';
   static const String settings = '/settings';

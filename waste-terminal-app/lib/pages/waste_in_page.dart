@@ -200,6 +200,8 @@ class _WasteInPageState extends State<WasteInPage> {
       _weightSubscription?.cancel();
       _stableSubscription?.cancel();
 
+      await _scaleService.loadSavedParams();
+
       _scaleStatusSubscription = _scaleService.statusStream.listen((status) {
         if (mounted) {
           setState(() {});
@@ -224,6 +226,15 @@ class _WasteInPageState extends State<WasteInPage> {
 
       if (!_scaleService.isConnected) {
         await _bluetoothService.autoConnectScale();
+        final addr = _bluetoothService.connectedDeviceAddress;
+        if (addr != null) {
+          _scaleService.setDeviceConfig(deviceAddress: addr);
+          if (!_scaleService.isConnected) {
+            try {
+              await _scaleService.connect();
+            } catch (_) {}
+          }
+        }
       }
     } catch (e) {
       ToastUtil.showError('连接地磅失败');
@@ -532,6 +543,37 @@ class _WasteInPageState extends State<WasteInPage> {
       ToastUtil.dismiss();
       ToastUtil.showError('读取重量超时，请重试');
     }
+  }
+
+  Future<void> _scaleZero() async {
+    try {
+      ToastUtil.showLoading(status: '执行归零...');
+      await _scaleService.zero();
+      ToastUtil.dismiss();
+      ToastUtil.showSuccess('一键归零成功');
+      setState(() {});
+    } catch (e) {
+      ToastUtil.dismiss();
+      ToastUtil.showError('归零失败: $e');
+    }
+  }
+
+  Future<void> _scaleTare() async {
+    try {
+      ToastUtil.showLoading(status: '执行去皮...');
+      await _scaleService.tare();
+      ToastUtil.dismiss();
+      ToastUtil.showSuccess('去皮完成');
+      setState(() {});
+    } catch (e) {
+      ToastUtil.dismiss();
+      ToastUtil.showError('去皮失败: $e');
+    }
+  }
+
+  Future<void> _openCalibrationPage() async {
+    await Navigator.pushNamed(context, AppRoutes.scaleCalibration);
+    if (mounted) setState(() {});
   }
 
   Future<void> _handleSave() async {
@@ -1097,14 +1139,65 @@ class _WasteInPageState extends State<WasteInPage> {
           SizedBox(height: 8.h),
           SizedBox(
             width: double.infinity,
-            child: CommonButton(
-              text: '读取稳定重量',
-              type: ButtonType.secondary,
-              size: ButtonSize.small,
-              prefixIcon: Icons.scale,
-              onPressed: isConnected ? _readStableWeight : null,
+            child: Wrap(
+              spacing: 8.w,
+              runSpacing: 6.h,
+              alignment: WrapAlignment.spaceBetween,
+              children: [
+                CommonButton(
+                  text: '读取重量',
+                  type: ButtonType.secondary,
+                  size: ButtonSize.small,
+                  prefixIcon: Icons.scale,
+                  onPressed: isConnected ? _readStableWeight : null,
+                ),
+                CommonButton(
+                  text: '归零',
+                  type: ButtonType.outline,
+                  size: ButtonSize.small,
+                  prefixIcon: Icons.exposure_zero,
+                  onPressed: isConnected ? _scaleZero : null,
+                ),
+                CommonButton(
+                  text: '去皮',
+                  type: ButtonType.outline,
+                  size: ButtonSize.small,
+                  prefixIcon: Icons.remove_circle_outline,
+                  onPressed: isConnected ? _scaleTare : null,
+                ),
+                CommonButton(
+                  text: '校准',
+                  type: ButtonType.outline,
+                  size: ButtonSize.small,
+                  prefixIcon: Icons.tune,
+                  onPressed: _openCalibrationPage,
+                ),
+              ],
             ),
           ),
+          if (isConnected) ...[
+            SizedBox(height: 8.h),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '校准状态: ${_scaleService.calibrationParams.statusText}',
+                  style: AppTextStyle.caption.copyWith(
+                    color: _scaleService.isCalibrated
+                        ? AppTheme.successColor
+                        : AppTheme.warningColor,
+                  ),
+                ),
+                if (_scaleService.calibrationParams.currentTare > 0)
+                  Text(
+                    '皮重: ${_scaleService.calibrationParams.currentTare.toStringAsFixed(3)} kg',
+                    style: AppTextStyle.caption.copyWith(
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

@@ -209,6 +209,14 @@ class _MinePageState extends State<MinePage> {
           ),
           Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
           _buildMenuItem(
+            icon: Icons.tune,
+            iconColor: AppTheme.secondaryColor,
+            title: '地磅校准',
+            subtitle: '一键归零、去皮、三点精度校准',
+            onTap: () => Navigator.pushNamed(context, AppRoutes.scaleCalibration),
+          ),
+          Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
+          _buildMenuItem(
             icon: Icons.sync,
             iconColor: AppTheme.secondaryColor,
             title: '数据同步',

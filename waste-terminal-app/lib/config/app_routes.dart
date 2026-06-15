@@ -20,6 +20,7 @@ import '../pages/capture_event_list_page.dart';
 import '../pages/capture_event_detail_page.dart';
 import '../pages/waste_ledger_list_page.dart';
 import '../pages/waste_ledger_detail_page.dart';
+import '../pages/scale_calibration_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -54,6 +55,7 @@ class AppRoutes {
   static const String captureEventDetail = '/capture_event_detail';
   static const String wasteLedger = '/waste_ledger';
   static const String wasteLedgerDetail = '/waste_ledger_detail';
+  static const String scaleCalibration = '/scale_calibration';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -84,6 +86,7 @@ class AppRoutes {
         cameraList: (context) => const CameraListPage(),
         captureEventList: (context) => const CaptureEventListPage(),
         wasteLedger: (context) => const WasteLedgerListPage(),
+        scaleCalibration: (context) => const ScaleCalibrationPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
