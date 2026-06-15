@@ -14,6 +14,9 @@ class DatabaseTables {
   static const String tableInventoryCheckDetail = 'inventory_check_detail';
   static const String tableWarningRecord = 'warning_record';
   static const String tableSyncLog = 'sync_log';
+  static const String tableCamera = 'camera';
+  static const String tableAiCaptureEvent = 'ai_capture_event';
+  static const String tableLocalRecordTask = 'local_record_task';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (
@@ -272,6 +275,9 @@ class DatabaseTables {
       createTableInventoryCheckDetail,
       createTableWarningRecord,
       createTableSyncLog,
+      createTableCamera,
+      createTableAiCaptureEvent,
+      createTableLocalRecordTask,
     ];
   }
 }

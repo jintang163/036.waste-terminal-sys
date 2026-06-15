@@ -61,6 +61,10 @@ dependencies:
   # 位置
   geolocator: ^11.0.0
 
+  # 视频播放
+  video_player: ^2.8.2
+  fijkplayer: ^0.11.0
+
   # 权限
   permission_handler: ^11.2.0
 

@@ -154,6 +154,31 @@ scale:
     mock-enabled: true
     mock-interval-seconds: 5
 
+# 视频监控配置
+video:
+  rtsp:
+    proxy-enabled: true
+    proxy-port: 8554
+    idle-timeout: 30000
+  huawei-ai:
+    enabled: true
+    endpoint: https://ais.cn-north-4.myhuaweicloud.com
+    project-id: cn-north-4
+    ak: YOUR_HUAWEI_AK
+    sk: YOUR_HUAWEI_SK
+    region: cn-north-4
+    behavior-task-name: waste_safety_behavior
+    capture-confidence-threshold: 60
+    callback-url: /api/ai-capture/callback
+  local-record:
+    enabled: true
+    storage-path: /data/waste-terminal/records
+    max-file-size-mb: 200
+    default-pre-seconds: 10
+    default-post-seconds: 10
+    auto-cleanup-days: 30
+    upload-retry-count: 3
+
 # Knife4j 配置
 knife4j:
   enable: true

@@ -14,6 +14,10 @@ import '../pages/scan_page.dart';
 import '../pages/mine_page.dart';
 import '../pages/platform_report_dashboard_page.dart';
 import '../pages/transfer_order_detail_page.dart';
+import '../pages/camera_list_page.dart';
+import '../pages/camera_preview_page.dart';
+import '../pages/capture_event_list_page.dart';
+import '../pages/capture_event_detail_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -42,6 +46,10 @@ class AppRoutes {
   static const String sync = '/sync';
   static const String about = '/about';
   static const String platformReport = '/platform_report';
+  static const String cameraList = '/camera_list';
+  static const String cameraPreview = '/camera_preview';
+  static const String captureEventList = '/capture_event_list';
+  static const String captureEventDetail = '/capture_event_detail';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -69,6 +77,8 @@ class AppRoutes {
         sync: (context) => const _PlaceholderPage(title: 'Sync'),
         about: (context) => const _PlaceholderPage(title: 'About'),
         platformReport: (context) => const PlatformReportDashboardPage(),
+        cameraList: (context) => const CameraListPage(),
+        captureEventList: (context) => const CaptureEventListPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
@@ -83,6 +93,30 @@ class AppRoutes {
         }
         return MaterialPageRoute(
           builder: (context) => TransferOrderDetailPage(orderId: orderId),
+          settings: settings,
+        );
+      case cameraPreview:
+        final args = settings.arguments;
+        String cameraCode = '';
+        if (args is String) {
+          cameraCode = args;
+        } else if (args is Map) {
+          cameraCode = args['cameraCode'] as String? ?? '';
+        }
+        return MaterialPageRoute(
+          builder: (context) => CameraPreviewPage(cameraCode: cameraCode),
+          settings: settings,
+        );
+      case captureEventDetail:
+        final args = settings.arguments;
+        int eventId = 0;
+        if (args is int) {
+          eventId = args;
+        } else if (args is Map) {
+          eventId = args['eventId'] as int? ?? 0;
+        }
+        return MaterialPageRoute(
+          builder: (context) => CaptureEventDetailPage(eventId: eventId),
           settings: settings,
         );
       default:

@@ -44,6 +44,9 @@ class SyncService {
   final TransferOrderDb _transferOrderDb = TransferOrderDb();
   final InventoryCheckDb _inventoryCheckDb = InventoryCheckDb();
   final WarningRecordDb _warningRecordDb = WarningRecordDb();
+  final CameraDb _cameraDb = CameraDb();
+  final AiCaptureEventDb _aiCaptureEventDb = AiCaptureEventDb();
+  final LocalRecordTaskDb _localRecordTaskDb = LocalRecordTaskDb();
   final SyncLogDb _syncLogDb = SyncLogDb();
 
   SyncStatus _syncStatus = SyncStatus.idle;
@@ -107,32 +110,41 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.full;
       _progress = 0.0;
-      _totalCount = 8;
+      _totalCount = 11;
       _completedCount = 0;
 
-      await _syncWasteCatalog();
+      await _syncCamera();
       _updateProgress(1);
 
-      await _syncWasteContainer();
+      await _syncWasteCatalog();
       _updateProgress(2);
 
-      await _syncInventory();
+      await _syncWasteContainer();
       _updateProgress(3);
 
-      await _syncWarning();
+      await _syncInventory();
       _updateProgress(4);
 
-      await _uploadWasteInRecords();
+      await _syncWarning();
       _updateProgress(5);
 
-      await _uploadWasteOutRecords();
+      await _syncAiCaptureEvent();
       _updateProgress(6);
 
-      await _uploadTransferOrders();
+      await _uploadWasteInRecords();
       _updateProgress(7);
 
-      await _uploadInventoryChecks();
+      await _uploadWasteOutRecords();
       _updateProgress(8);
+
+      await _uploadTransferOrders();
+      _updateProgress(9);
+
+      await _uploadInventoryChecks();
+      _updateProgress(10);
+
+      await _uploadLocalRecords();
+      _updateProgress(11);
 
       _updateStatus(SyncStatus.success);
 
@@ -186,32 +198,41 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.incremental;
       _progress = 0.0;
-      _totalCount = 8;
+      _totalCount = 11;
       _completedCount = 0;
 
-      await _syncWasteCatalog();
+      await _syncCamera();
       _updateProgress(1);
 
-      await _syncWasteContainer();
+      await _syncWasteCatalog();
       _updateProgress(2);
 
-      await _syncInventory();
+      await _syncWasteContainer();
       _updateProgress(3);
 
-      await _syncWarning();
+      await _syncInventory();
       _updateProgress(4);
 
-      await _uploadWasteInRecords();
+      await _syncWarning();
       _updateProgress(5);
 
-      await _uploadWasteOutRecords();
+      await _syncAiCaptureEvent();
       _updateProgress(6);
 
-      await _uploadTransferOrders();
+      await _uploadWasteInRecords();
       _updateProgress(7);
 
-      await _uploadInventoryChecks();
+      await _uploadWasteOutRecords();
       _updateProgress(8);
+
+      await _uploadTransferOrders();
+      _updateProgress(9);
+
+      await _uploadInventoryChecks();
+      _updateProgress(10);
+
+      await _uploadLocalRecords();
+      _updateProgress(11);
 
       _updateStatus(SyncStatus.success);
 
@@ -534,6 +555,7 @@ class SyncService {
     count += await _wasteOutRecordDb.queryUnsyncedCount();
     count += await _transferOrderDb.queryUnsyncedCount();
     count += await _inventoryCheckDb.queryUnsyncedChecksCount();
+    count += await _localRecordTaskDb.queryUnsyncedCount();
     return count;
   }
 
@@ -543,7 +565,102 @@ class SyncService {
       'wasteOut': await _wasteOutRecordDb.queryUnsyncedCount(),
       'transferOrder': await _transferOrderDb.queryUnsyncedCount(),
       'inventoryCheck': await _inventoryCheckDb.queryUnsyncedChecksCount(),
+      'localRecord': await _localRecordTaskDb.queryUnsyncedCount(),
     };
+  }
+
+  Future<void> _syncCamera() async {
+    _currentModule = '摄像头';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过摄像头同步');
+        return;
+      }
+
+      final response = await _apiService.get('/camera/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> cameraList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _cameraDb.replaceAll(cameraList);
+      _logger.d('摄像头同步完成，数量: ${cameraList.length}');
+    } catch (e) {
+      _logger.w('摄像头同步失败: $e');
+    }
+  }
+
+  Future<void> _syncAiCaptureEvent() async {
+    _currentModule = 'AI抓拍事件';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过AI抓拍事件同步');
+        return;
+      }
+
+      final response = await _apiService.get('/ai-capture/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> eventList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _aiCaptureEventDb.replaceAll(eventList);
+      _logger.d('AI抓拍事件同步完成，数量: ${eventList.length}');
+    } catch (e) {
+      _logger.w('AI抓拍事件同步失败: $e');
+    }
+  }
+
+  Future<void> _uploadLocalRecords() async {
+    _currentModule = '本地录像';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过本地录像上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _localRecordTaskDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步本地录像');
+        return;
+      }
+
+      _logger.d('待同步本地录像数量: ${unsynced.length}');
+
+      for (var record in unsynced) {
+        try {
+          String? filePath = record['file_path'];
+          if (filePath != null && filePath.isNotEmpty) {
+            await _apiService.uploadFile(
+              filePath,
+              bizType: 'local_record',
+              bizId: record['task_id'],
+            );
+          }
+
+          await _localRecordTaskDb.updateSyncStatus(
+            record['task_id'],
+            1,
+            syncTime: DateTime.now().toIso8601String(),
+          );
+        } catch (e) {
+          _logger.w('上传本地录像失败: ${record['task_id']}, $e');
+        }
+      }
+
+      _logger.d('本地录像上传完成');
+    } catch (e) {
+      _logger.w('本地录像上传失败: $e');
+    }
   }
 
   Future<DateTime?> getLastSyncTime() async {

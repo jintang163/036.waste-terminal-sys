@@ -380,6 +380,35 @@ class BusinessConstants {
 
   /// 网络类型：无网络
   static const String networkTypeNone = 'none';
+
+  static const String bizTypeCameraSnapshot = 'camera_snapshot';
+  static const String bizTypeVideoClip = 'video_clip';
+  static const String bizTypeLocalRecord = 'local_record';
+
+  static const String cameraBrandHikvision = 'hikvision';
+  static const String cameraBrandDahua = 'dahua';
+  static const String cameraBrandUniview = 'uniview';
+
+  static const String cameraTypeFixed = 'fixed';
+  static const String cameraTypePtz = 'ptz';
+  static const String cameraTypeDome = 'dome';
+
+  static const String aiEventCategorySafetyViolation = 'safety_violation';
+  static const String aiEventCategoryEquipmentWarning = 'equipment_warning';
+  static const String aiEventCategoryBehaviorAbnormal = 'behavior_abnormal';
+
+  static const String aiEventTypeNoGoggles = 'no_goggles';
+  static const String aiEventTypeNoMask = 'no_mask';
+  static const String aiEventTypeNoHelmet = 'no_helmet';
+  static const String aiEventTypeForkliftSpeeding = 'forklift_speeding';
+  static const String aiEventTypeSmoking = 'smoking';
+  static const String aiEventTypeFallDetection = 'fall_detection';
+  static const String aiEventTypeUnauthorizedEntry = 'unauthorized_entry';
+
+  static const String recordTriggerWasteIn = 'waste_in';
+  static const String recordTriggerWasteOut = 'waste_out';
+  static const String recordTriggerAiEvent = 'ai_event';
+  static const String recordTriggerManual = 'manual';
 }
 
 /// 正则表达式常量
@@ -585,4 +614,27 @@ class ApiConstants {
   static const String platformReportManualRetry = '/platform-report/manual-retry';
   static const String platformReportBatchRetry = '/platform-report/batch-manual-retry';
   static const String platformReportPage = '/platform-report/page';
+
+  static const String cameraList = '/camera/list';
+  static const String cameraPage = '/camera/page';
+  static const String cameraDetail = '/camera/detail';
+  static const String cameraPreviewUrl = '/camera/preview-url';
+  static const String cameraSnapshotUrl = '/camera/snapshot-url';
+  static const String cameraToggleAi = '/camera/ai';
+
+  static const String aiCapturePage = '/ai-capture/page';
+  static const String aiCaptureDetail = '/ai-capture/detail';
+  static const String aiCaptureUnhandled = '/ai-capture/unhandled';
+  static const String aiCaptureList = '/ai-capture/list';
+  static const String aiCaptureHandle = '/ai-capture/handle';
+  static const String aiCaptureIgnore = '/ai-capture/ignore';
+  static const String aiCaptureStatistics = '/ai-capture/statistics';
+
+  static const String localRecordPage = '/local-record/page';
+  static const String localRecordDetail = '/local-record/detail';
+  static const String localRecordUnsynced = '/local-record/unsynced';
+  static const String localRecordList = '/local-record/list';
+  static const String localRecordTrigger = '/local-record/trigger';
+  static const String localRecordSyncStatus = '/local-record/sync-status';
+  static const String localRecordBatchSyncStatus = '/local-record/batch-sync-status';
 }

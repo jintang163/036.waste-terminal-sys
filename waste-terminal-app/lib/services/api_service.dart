@@ -23,6 +23,8 @@ import '../models/inventory_check.dart';
 import '../models/warning_record.dart';
 import '../models/sys_file.dart';
 import '../models/sync_record.dart';
+import '../models/camera_model.dart';
+import '../models/ai_capture_event.dart';
 import '../utils/logger_util.dart';
 import '../utils/sp_util.dart';
 
@@ -1269,6 +1271,41 @@ class ApiService {
   }
 
   // ==================== 同步API ====================
+
+  Future<List<CameraModel>> syncPullCamera({DateTime? lastSyncTime}) async {
+    final response = await get(
+      ApiConstants.cameraList,
+      queryParameters: {
+        if (lastSyncTime != null) 'lastSyncTime': lastSyncTime.toIso8601String(),
+      },
+    );
+    return parseList<CameraModel>(response, (e) => CameraModel.fromJson(e));
+  }
+
+  Future<List<AiCaptureEvent>> syncPullAiCaptureEvent({DateTime? lastSyncTime}) async {
+    final response = await get(
+      ApiConstants.aiCaptureList,
+      queryParameters: {
+        if (lastSyncTime != null) 'lastSyncTime': lastSyncTime.toIso8601String(),
+      },
+    );
+    return parseList<AiCaptureEvent>(response, (e) => AiCaptureEvent.fromJson(e));
+  }
+
+  Future<SyncResult> syncPushLocalRecords(List<Map<String, dynamic>> records) async {
+    final response = await post(
+      '${ApiConstants.localRecordList}/sync-push',
+      data: records,
+    );
+    final data = Map<String, dynamic>.from(response.data['data'] ?? {});
+    return SyncResult(
+      success: data['success'] ?? 0,
+      failed: data['failed'] ?? 0,
+      total: data['total'] ?? records.length,
+      failedIds: (data['failedIds'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      messages: (data['messages'] as List?)?.cast<String>() ?? [],
+    );
+  }
 
   /// 拉取危废名录数据
   Future<List<WasteCatalog>> syncPullWasteCatalog({DateTime? lastSyncTime}) async {

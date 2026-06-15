@@ -753,3 +753,123 @@ CREATE TABLE transfer_order_timeline (
     KEY idx_event_time (event_time),
     KEY idx_enterprise_id (enterprise_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联单轨迹表';
+
+-- =============================================
+-- 20. 摄像头管理表
+-- =============================================
+DROP TABLE IF EXISTS camera;
+CREATE TABLE camera (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '摄像头ID',
+    camera_code VARCHAR(50) NOT NULL COMMENT '摄像头编码',
+    camera_name VARCHAR(100) COMMENT '摄像头名称',
+    camera_type VARCHAR(30) COMMENT '摄像头类型: ptz-云台 fixed-固定 dome-半球',
+    brand VARCHAR(50) COMMENT '品牌: hikvision-海康 dahua-大华 uniview-宇视 other-其他',
+    rtsp_url VARCHAR(500) COMMENT 'RTSP流地址',
+    http_url VARCHAR(500) COMMENT 'HTTP预览地址',
+    location VARCHAR(200) COMMENT '安装位置',
+    warehouse_code VARCHAR(50) COMMENT '关联库房编码',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态: 0-离线 1-在线 2-故障',
+    ai_enabled TINYINT(1) DEFAULT 0 COMMENT '是否启用AI检测: 0-否 1-是',
+    ai_task_id VARCHAR(64) COMMENT '华为云AI任务ID',
+    snapshot_url VARCHAR(500) COMMENT '抓拍图片URL',
+    resolution VARCHAR(20) COMMENT '分辨率: 1080P/720P/4K',
+    stream_type TINYINT DEFAULT 0 COMMENT '码流类型: 0-主码流 1-子码流',
+    username VARCHAR(50) COMMENT '摄像头用户名',
+    password VARCHAR(100) COMMENT '摄像头密码',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_camera_code (camera_code),
+    KEY idx_status (status),
+    KEY idx_ai_enabled (ai_enabled),
+    KEY idx_warehouse_code (warehouse_code),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='摄像头管理表';
+
+-- =============================================
+-- 21. AI抓拍事件表
+-- =============================================
+DROP TABLE IF EXISTS ai_capture_event;
+CREATE TABLE ai_capture_event (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '事件ID',
+    event_no VARCHAR(50) NOT NULL COMMENT '事件编号',
+    camera_id BIGINT COMMENT '摄像头ID',
+    camera_code VARCHAR(50) COMMENT '摄像头编码',
+    camera_name VARCHAR(100) COMMENT '摄像头名称',
+    event_type VARCHAR(50) NOT NULL COMMENT '事件类型: no_goggles-未戴护目镜 no_mask-未戴口罩 no_helmet-未戴安全帽 forklift_speeding-叉车超速 smoking-吸烟 fall_detection-跌倒检测 unauthorized_entry-非法闯入',
+    event_category VARCHAR(30) NOT NULL COMMENT '事件分类: safety_violation-安全违规 equipment_warning-设备预警 behavior_abnormal-行为异常',
+    confidence INT COMMENT '置信度(0-100)',
+    snapshot_path VARCHAR(500) COMMENT '抓拍图片路径',
+    video_clip_path VARCHAR(500) COMMENT '视频片段路径',
+    detail TEXT COMMENT '事件详情(JSON)',
+    capture_time DATETIME NOT NULL COMMENT '抓拍时间',
+    handle_status TINYINT DEFAULT 0 COMMENT '处理状态: 0-未处理 1-已处理 2-已忽略',
+    handle_user_id BIGINT COMMENT '处理人ID',
+    handle_time DATETIME COMMENT '处理时间',
+    handle_remark VARCHAR(500) COMMENT '处理说明',
+    push_status TINYINT DEFAULT 0 COMMENT '推送状态: 0-未推送 1-已推送 2-推送失败',
+    push_time DATETIME COMMENT '推送时间',
+    push_fail_reason VARCHAR(500) COMMENT '推送失败原因',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_event_no (event_no),
+    KEY idx_camera_id (camera_id),
+    KEY idx_camera_code (camera_code),
+    KEY idx_event_type (event_type),
+    KEY idx_event_category (event_category),
+    KEY idx_handle_status (handle_status),
+    KEY idx_capture_time (capture_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI抓拍事件表';
+
+-- =============================================
+-- 22. 本地录像任务表
+-- =============================================
+DROP TABLE IF EXISTS local_record_task;
+CREATE TABLE local_record_task (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '任务ID',
+    task_id VARCHAR(64) NOT NULL COMMENT '任务唯一标识',
+    camera_id BIGINT COMMENT '摄像头ID',
+    camera_code VARCHAR(50) COMMENT '摄像头编码',
+    camera_name VARCHAR(100) COMMENT '摄像头名称',
+    trigger_type VARCHAR(30) NOT NULL COMMENT '触发类型: waste_in-入库操作 waste_out-出库操作 ai_event-AI事件 manual-手动',
+    trigger_id VARCHAR(64) COMMENT '触发关联ID(如入库记录ID/AI事件ID)',
+    start_time DATETIME COMMENT '录像开始时间',
+    end_time DATETIME COMMENT '录像结束时间',
+    duration_seconds INT COMMENT '录像时长(秒)',
+    pre_seconds VARCHAR(10) DEFAULT '10' COMMENT '事件前预录秒数',
+    post_seconds VARCHAR(10) DEFAULT '10' COMMENT '事件后延录秒数',
+    file_path VARCHAR(500) COMMENT '录像文件路径',
+    file_size BIGINT COMMENT '文件大小(字节)',
+    status TINYINT DEFAULT 0 COMMENT '状态: 0-待录制 1-录制完成 2-上传中 3-上传失败',
+    sync_status TINYINT DEFAULT 0 COMMENT '同步状态: 0-未同步 1-已同步',
+    sync_time DATETIME COMMENT '同步时间',
+    device_id VARCHAR(100) COMMENT '录制设备ID',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_task_id (task_id),
+    KEY idx_camera_code (camera_code),
+    KEY idx_trigger_type (trigger_type),
+    KEY idx_status (status),
+    KEY idx_sync_status (sync_status),
+    KEY idx_device_id (device_id),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='本地录像任务表';
+
+-- =============================================
+-- 初始化摄像头数据
+-- =============================================
+INSERT INTO camera (camera_code, camera_name, camera_type, brand, rtsp_url, location, warehouse_code, status, ai_enabled, resolution, stream_type, username, password, enterprise_id) VALUES
+('CAM001', 'A区入口摄像头', 'fixed', 'hikvision', 'rtsp://admin:hik12345@192.168.1.201:554/Streaming/Channels/101', 'A区库房入口', 'WH-A', 1, 1, '1080P', 0, 'admin', 'hik12345', 1),
+('CAM002', 'A区内部摄像头', 'ptz', 'hikvision', 'rtsp://admin:hik12345@192.168.1.202:554/Streaming/Channels/101', 'A区库房内部', 'WH-A', 1, 1, '1080P', 0, 'admin', 'hik12345', 1),
+('CAM003', 'B区入口摄像头', 'fixed', 'dahua', 'rtsp://admin:dahua123@192.168.1.203:554/cam/realmonitor?channel=1&subtype=0', 'B区库房入口', 'WH-B', 1, 0, '1080P', 0, 'admin', 'dahua123', 1),
+('CAM004', '卸货区摄像头', 'ptz', 'dahua', 'rtsp://admin:dahua123@192.168.1.204:554/cam/realmonitor?channel=1&subtype=0', '卸货区域', 'WH-C', 1, 1, '4K', 0, 'admin', 'dahua123', 1),
+('CAM005', '叉车作业区摄像头', 'fixed', 'hikvision', 'rtsp://admin:hik12345@192.168.1.205:554/Streaming/Channels/101', '叉车作业区域', 'WH-D', 1, 1, '1080P', 0, 'admin', 'hik12345', 1);

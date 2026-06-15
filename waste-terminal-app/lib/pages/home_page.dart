@@ -308,6 +308,18 @@ class _HomePageState extends State<HomePage> {
         color: Colors.orange,
         route: AppRoutes.inventoryCheck,
       ),
+      _ActionItem(
+        icon: Icons.videocam,
+        label: '视频监控',
+        color: Colors.teal,
+        route: AppRoutes.cameraList,
+      ),
+      _ActionItem(
+        icon: Icons.smart_toy,
+        label: 'AI抓拍',
+        color: Colors.deepPurple,
+        route: AppRoutes.captureEventList,
+      ),
     ];
 
     return Column(
@@ -331,8 +343,10 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+          child: Wrap(
+            spacing: 16.w,
+            runSpacing: 16.h,
+            alignment: WrapAlignment.spaceAround,
             children: actions
                 .map((action) => _buildActionItem(action))
                 .toList(),
