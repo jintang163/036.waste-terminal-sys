@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -13,6 +15,7 @@ import '../services/transfer_order_service.dart';
 import '../services/inventory_service.dart';
 import '../services/video_player_service.dart';
 import '../services/camera_service.dart';
+import '../services/face_auth_service.dart';
 import '../providers/app_provider.dart';
 import '../widgets/common_button.dart';
 import '../utils/toast_util.dart';
@@ -24,6 +27,7 @@ import '../models/transfer_order.dart';
 import '../models/waste_inventory.dart';
 import '../models/enterprise.dart';
 import '../models/camera_model.dart';
+import 'face_verify_page.dart';
 
 class WasteOutPage extends StatefulWidget {
   const WasteOutPage({super.key});
@@ -336,11 +340,37 @@ class _WasteOutPageState extends State<WasteOutPage> {
       return;
     }
 
+    final appProvider = context.read<AppProvider>();
+    final currentUsername = appProvider.username ?? '';
+    final faceAuthService = FaceAuthService();
+    final hasEnrolledFace = await faceAuthService.hasEnrolledFace(currentUsername);
+    FaceAuthResult? authResult;
+    final outNo = UuidUtil.generateWasteOutNo();
+
+    if (hasEnrolledFace) {
+      authResult = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (ctx) => FaceVerifyPage(
+            authType: 'waste_out',
+            businessType: 'waste_out',
+            businessNo: outNo,
+            targetUsername: currentUsername,
+            autoNavigateOnSuccess: true,
+          ),
+        ),
+      );
+
+      if (authResult == null || !authResult.success) {
+        ToastUtil.showWarning('人脸验证未通过，无法保存');
+        return;
+      }
+    }
+
     setState(() => _isSaving = true);
 
     try {
       final appProvider = context.read<AppProvider>();
-      final outNo = UuidUtil.generateWasteOutNo();
       final orderNo = UuidUtil.generateTransferOrderNo();
       final offlineId = UuidUtil.generateOfflineId('WO');
       final orderOfflineId = UuidUtil.generateOfflineId('TO');
@@ -369,6 +399,11 @@ class _WasteOutPageState extends State<WasteOutPage> {
         syncStatus: 0,
         offlineId: offlineId,
         enterpriseId: appProvider.enterpriseInfo?['id'] as int?,
+        faceAuthId: authResult?.authId,
+        faceId: authResult?.userFace?.faceId,
+        operatorFaceImage: authResult?.capturedImage != null
+            ? base64Encode(authResult!.capturedImage!)
+            : null,
       );
 
       final transferOrderItem = TransferOrderItem(
@@ -408,7 +443,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
       );
 
       final wasteOutService = WasteOutService();
-      await wasteOutService.addWasteOutRecord(wasteOutRecord.toJson());
+      await wasteOutService.addWasteOutRecord(wasteOutRecord.toDbMap());
 
       final transferOrderService = TransferOrderService();
       await transferOrderService.createTransferOrder(transferOrder.toJson());

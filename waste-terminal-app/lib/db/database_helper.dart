@@ -51,6 +51,22 @@ class DatabaseHelper {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     _logger.i('数据库升级: $oldVersion -> $newVersion');
     if (oldVersion < 2) {
+      Batch batch = db.batch();
+      batch.execute(DatabaseTables.createTableUserFace);
+      batch.execute(DatabaseTables.createTableFaceAuthRecord);
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v2完成，已添加人脸相关表');
+    }
+    if (oldVersion < 3) {
+      Batch batch = db.batch();
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteInRecord} ADD COLUMN face_auth_id TEXT');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteInRecord} ADD COLUMN face_id TEXT');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteInRecord} ADD COLUMN operator_face_image TEXT');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN face_auth_id TEXT');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN face_id TEXT');
+      batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN operator_face_image TEXT');
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v3完成，已添加入库出库人脸追溯字段');
     }
   }
 

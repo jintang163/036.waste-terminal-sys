@@ -3,6 +3,8 @@ import 'package:logger/logger.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../utils/sp_util.dart';
 
 enum AppThemeMode { light, dark, system }
 enum NetworkStatus { online, offline, unknown }
@@ -167,4 +169,42 @@ class AppProvider extends ChangeNotifier {
   }
 
   AuthService get authService => _authService;
+
+  String? get deviceId => SpUtil.getDeviceId();
+
+  Future<void> loginWithFace({
+    required int userId,
+    required String username,
+    String? faceAuthId,
+  }) async {
+    try {
+      final apiService = ApiService();
+      final faceLoginResult = await apiService.faceLogin(
+        userId: userId,
+        username: username,
+        faceAuthId: faceAuthId,
+      );
+
+      _userInfo = faceLoginResult['userInfo'];
+      _enterpriseInfo = faceLoginResult['enterpriseInfo'];
+
+      notifyListeners();
+      _logger.i('人脸登录成功: $username');
+    } catch (e) {
+      _logger.w('服务器人脸登录失败，尝试本地登录: $e');
+
+      final savedUserInfo = _authService.userInfo;
+      if (savedUserInfo != null &&
+          savedUserInfo['userId'] == userId &&
+          savedUserInfo['username'] == username) {
+        _userInfo = savedUserInfo;
+        _enterpriseInfo = _authService.enterpriseInfo;
+        notifyListeners();
+        _logger.i('本地人脸登录成功: $username');
+        return;
+      }
+
+      rethrow;
+    }
+  }
 }

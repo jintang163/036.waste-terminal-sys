@@ -140,6 +140,9 @@ CREATE TABLE waste_in_record (
     sync_time DATETIME COMMENT '同步时间',
     sync_fail_reason VARCHAR(500) COMMENT '同步失败原因',
     offline_id VARCHAR(64) COMMENT '离线数据ID(移动端生成)',
+    face_auth_id VARCHAR(64) COMMENT '人脸认证ID',
+    face_id VARCHAR(64) COMMENT '操作员人脸ID',
+    operator_face_image VARCHAR(255) COMMENT '操作时人脸抓拍图片',
     enterprise_id BIGINT COMMENT '企业ID',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -151,6 +154,7 @@ CREATE TABLE waste_in_record (
     KEY idx_waste_code (waste_code),
     KEY idx_create_time (create_time),
     KEY idx_sync_status (sync_status),
+    KEY idx_face_id (face_id),
     KEY idx_enterprise_id (enterprise_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='危废入库记录表';
 
@@ -222,6 +226,9 @@ CREATE TABLE waste_out_record (
     sync_status TINYINT DEFAULT 0 COMMENT '同步状态: 0-未同步 1-同步中 2-已同步 3-同步失败',
     sync_time DATETIME COMMENT '同步时间',
     offline_id VARCHAR(64) COMMENT '离线数据ID',
+    face_auth_id VARCHAR(64) COMMENT '人脸认证ID',
+    face_id VARCHAR(64) COMMENT '操作员人脸ID',
+    operator_face_image VARCHAR(255) COMMENT '操作时人脸抓拍图片',
     enterprise_id BIGINT COMMENT '企业ID',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -233,6 +240,7 @@ CREATE TABLE waste_out_record (
     KEY idx_container_id (container_id),
     KEY idx_waste_code (waste_code),
     KEY idx_status (status),
+    KEY idx_face_id (face_id),
     KEY idx_enterprise_id (enterprise_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='危废出库记录表';
 
@@ -873,3 +881,66 @@ INSERT INTO camera (camera_code, camera_name, camera_type, brand, rtsp_url, loca
 ('CAM003', 'B区入口摄像头', 'fixed', 'dahua', 'rtsp://admin:dahua123@192.168.1.203:554/cam/realmonitor?channel=1&subtype=0', 'B区库房入口', 'WH-B', 1, 0, '1080P', 0, 'admin', 'dahua123', 1),
 ('CAM004', '卸货区摄像头', 'ptz', 'dahua', 'rtsp://admin:dahua123@192.168.1.204:554/cam/realmonitor?channel=1&subtype=0', '卸货区域', 'WH-C', 1, 1, '4K', 0, 'admin', 'dahua123', 1),
 ('CAM005', '叉车作业区摄像头', 'fixed', 'hikvision', 'rtsp://admin:hik12345@192.168.1.205:554/Streaming/Channels/101', '叉车作业区域', 'WH-D', 1, 1, '1080P', 0, 'admin', 'hik12345', 1);
+
+-- =============================================
+-- 23. 用户人脸信息表
+-- =============================================
+DROP TABLE IF EXISTS user_face;
+CREATE TABLE user_face (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    user_id BIGINT COMMENT '用户ID',
+    username VARCHAR(50) COMMENT '用户名',
+    face_id VARCHAR(64) NOT NULL COMMENT '人脸唯一标识',
+    face_feature LONGTEXT COMMENT '人脸特征数据(base64)',
+    face_image VARCHAR(500) COMMENT '人脸图片URL',
+    status TINYINT DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+    enroll_quality INT COMMENT '录入质量评分(0-100)',
+    device_id VARCHAR(100) COMMENT '录入设备ID',
+    enterprise_id BIGINT COMMENT '企业ID',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_face_id (face_id),
+    KEY idx_user_id (user_id),
+    KEY idx_username (username),
+    KEY idx_status (status),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户人脸信息表';
+
+-- =============================================
+-- 24. 人脸认证记录表
+-- =============================================
+DROP TABLE IF EXISTS face_auth_record;
+CREATE TABLE face_auth_record (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    auth_id VARCHAR(64) NOT NULL COMMENT '认证唯一标识',
+    user_id BIGINT COMMENT '用户ID',
+    username VARCHAR(50) COMMENT '用户名',
+    real_name VARCHAR(50) COMMENT '真实姓名',
+    face_id VARCHAR(64) COMMENT '人脸ID',
+    similarity DOUBLE COMMENT '相似度(0-1)',
+    auth_status TINYINT DEFAULT 0 COMMENT '认证状态: 0-失败 1-成功',
+    auth_type VARCHAR(30) COMMENT '认证类型: login-登录 verify-操作验证',
+    business_type VARCHAR(30) COMMENT '业务类型: waste_in-入库 waste_out-出库等',
+    business_id VARCHAR(64) COMMENT '业务关联ID',
+    business_no VARCHAR(64) COMMENT '业务编号(如入库单号)',
+    device_id VARCHAR(100) COMMENT '认证设备ID',
+    ip VARCHAR(50) COMMENT 'IP地址',
+    auth_time DATETIME COMMENT '认证时间',
+    enterprise_id BIGINT COMMENT '企业ID',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_auth_id (auth_id),
+    KEY idx_user_id (user_id),
+    KEY idx_face_id (face_id),
+    KEY idx_auth_status (auth_status),
+    KEY idx_auth_type (auth_type),
+    KEY idx_business (business_type, business_id),
+    KEY idx_auth_time (auth_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='人脸认证记录表';

@@ -496,6 +496,7 @@ class ApiConstants {
 
   /// 认证相关
   static const String authLogin = '/auth/login';
+  static const String authFaceLogin = '/auth/face-login';
   static const String authLogout = '/auth/logout';
   static const String authRefreshToken = '/auth/refresh';
   static const String authUserInfo = '/auth/userInfo';
@@ -646,4 +647,24 @@ class ApiConstants {
   static const String localRecordSyncStatus = '/local-record/sync-status';
   static const String localRecordBatchSyncStatus = '/local-record/batch-sync-status';
   static const String localRecordConfirmUpload = '/local-record/confirm-upload';
+
+  static const String userFacePage = '/user-face/page';
+  static const String userFaceDetail = '/user-face';
+  static const String userFaceByUserId = '/user-face/user';
+  static const String userFaceByUsername = '/user-face/username';
+  static const String userFaceByFaceId = '/user-face/face';
+  static const String userFaceList = '/user-face/list';
+  static const String userFaceAdd = '/user-face';
+  static const String userFaceUpdate = '/user-face';
+  static const String userFaceDelete = '/user-face';
+  static const String userFaceUpdateStatus = '/user-face/status';
+  static const String userFaceSync = '/user-face/sync';
+
+  static const String faceAuthPage = '/face-auth/page';
+  static const String faceAuthDetail = '/face-auth';
+  static const String faceAuthByAuthId = '/face-auth/auth';
+  static const String faceAuthAdd = '/face-auth';
+  static const String faceAuthBatchAdd = '/face-auth/batch';
+  static const String faceAuthByBusiness = '/face-auth/business';
+  static const String faceAuthByUser = '/face-auth/user';
 }

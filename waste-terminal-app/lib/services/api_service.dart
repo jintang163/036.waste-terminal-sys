@@ -639,6 +639,44 @@ class ApiService {
     return user;
   }
 
+  /// 人脸登录
+  Future<Map<String, dynamic>> faceLogin({
+    required int userId,
+    required String username,
+    String? faceAuthId,
+  }) async {
+    final response = await post(
+      ApiConstants.authFaceLogin,
+      data: {
+        'userId': userId,
+        'username': username,
+        'faceAuthId': faceAuthId,
+        'deviceId': _deviceId,
+      },
+    );
+
+    final data = response.data['data'] as Map<String, dynamic>;
+    final token = data['token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      setToken(token);
+    }
+
+    final userData = data['user'] ?? data;
+    final user = User.fromJson(Map<String, dynamic>.from(userData));
+    if (user.username != null) {
+      await SpUtil.saveLoginUsername(user.username!);
+    }
+    if (user.id != null) {
+      await SpUtil.setUserId(user.id!);
+    }
+
+    final enterpriseData = data['enterprise'] as Map<String, dynamic>?;
+    return {
+      'userInfo': user.toJson(),
+      'enterpriseInfo': enterpriseData,
+    };
+  }
+
   /// 用户登出
   Future<void> logout() async {
     try {

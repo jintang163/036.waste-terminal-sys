@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +22,7 @@ import '../services/waste_catalog_service.dart';
 import '../services/file_service.dart';
 import '../services/video_player_service.dart';
 import '../services/camera_service.dart';
+import '../services/face_auth_service.dart';
 import '../providers/app_provider.dart';
 import '../widgets/common_button.dart';
 import '../widgets/status_tag.dart';
@@ -29,6 +31,7 @@ import '../utils/uuid_util.dart';
 import '../utils/permission_util.dart';
 import '../models/waste_catalog.dart';
 import '../models/camera_model.dart';
+import 'face_verify_page.dart';
 
 class WasteInPage extends StatefulWidget {
   const WasteInPage({super.key});
@@ -557,13 +560,40 @@ class _WasteInPageState extends State<WasteInPage> {
       return;
     }
 
+    final appProvider = context.read<AppProvider>();
+    final currentUsername = appProvider.username ?? '';
+    final faceAuthService = FaceAuthService();
+    final hasEnrolledFace = await faceAuthService.hasEnrolledFace(currentUsername);
+    FaceAuthResult? authResult;
+    final recordNo = UuidUtil.generateWasteInNo();
+
+    if (hasEnrolledFace) {
+      authResult = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (ctx) => FaceVerifyPage(
+            authType: 'waste_in',
+            businessType: 'waste_in',
+            businessNo: recordNo,
+            targetUsername: currentUsername,
+            autoNavigateOnSuccess: true,
+          ),
+        ),
+      );
+
+      if (authResult == null || !authResult.success) {
+        ToastUtil.showWarning('人脸验证未通过，无法保存');
+        return;
+      }
+    }
+
     setState(() {
       _isSaving = true;
     });
 
     try {
       final record = <String, dynamic>{
-        'record_no': UuidUtil.generateWasteInNo(),
+        'record_no': recordNo,
         'waste_code': _selectedCatalog!.wasteCode,
         'waste_name': _selectedCatalog!.wasteName,
         'waste_category': _selectedCatalog!.wasteCategory,
@@ -571,13 +601,19 @@ class _WasteInPageState extends State<WasteInPage> {
         'weight': weight,
         'weight_unit': 'kg',
         'source': _isScaleMode ? 'scale' : 'manual',
-        'operator': context.read<AppProvider>().username ?? '',
+        'operator': currentUsername,
         'warehouse': _storageLocationController.text.trim(),
         'remark': _remarkController.text.trim(),
         'in_time': DateTime.now().toIso8601String(),
         'photos': _photoPaths.join(','),
         'produce_date': _produceDate.toIso8601String(),
         'produce_department': _produceDepartmentController.text.trim(),
+        if (authResult != null && authResult.success) ...{
+          'face_auth_id': authResult.authId,
+          'face_id': authResult.userFace?.faceId,
+          if (authResult.capturedImage != null)
+            'operator_face_image': base64Encode(authResult.capturedImage!),
+        },
       };
 
       await _wasteInService.addWasteInRecord(record);

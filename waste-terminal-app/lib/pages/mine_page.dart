@@ -8,7 +8,10 @@ import '../providers/app_provider.dart';
 import '../providers/sync_provider.dart';
 import '../services/sync_service.dart';
 import '../services/auth_service.dart';
+import '../services/face_auth_service.dart';
 import '../utils/toast_util.dart';
+import 'face_enroll_page.dart';
+import 'face_verify_page.dart';
 
 class MinePage extends StatefulWidget {
   const MinePage({super.key});
@@ -161,6 +164,42 @@ class _MinePageState extends State<MinePage> {
       child: Column(
         children: [
           _buildMenuItem(
+            icon: Icons.face,
+            iconColor: AppTheme.primaryColor,
+            title: '人脸录入',
+            subtitle: '录入或更新人脸信息，用于身份验证',
+            trailing: _buildFaceEnrolledBadge(),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (ctx) => const FaceEnrollPage()),
+              );
+              setState(() {});
+            },
+          ),
+          Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
+          _buildMenuItem(
+            icon: Icons.fingerprint,
+            iconColor: Colors.green,
+            title: '人脸验证测试',
+            subtitle: '测试人脸识别验证功能',
+            onTap: () async {
+              final appProvider = context.read<AppProvider>();
+              final username = appProvider.username ?? '';
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (ctx) => FaceVerifyPage(
+                    authType: 'verify',
+                    targetUsername: username,
+                    autoNavigateOnSuccess: false,
+                  ),
+                ),
+              );
+            },
+          ),
+          Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
+          _buildMenuItem(
             icon: Icons.bluetooth,
             iconColor: Colors.blue,
             title: '设备管理',
@@ -205,6 +244,8 @@ class _MinePageState extends State<MinePage> {
     required IconData icon,
     required Color iconColor,
     required String title,
+    String? subtitle,
+    Widget? trailing,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -225,12 +266,51 @@ class _MinePageState extends State<MinePage> {
             ),
             SizedBox(width: 12.w),
             Expanded(
-              child: Text(title, style: AppTextStyle.body),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppTextStyle.body),
+                  if (subtitle != null) ...[
+                    SizedBox(height: 2.h),
+                    Text(subtitle, style: AppTextStyle.caption),
+                  ],
+                ],
+              ),
             ),
+            if (trailing != null) ...[
+              trailing,
+              SizedBox(width: 4.w),
+            ],
             Icon(Icons.chevron_right, size: 20.r, color: AppTheme.textHint),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFaceEnrolledBadge() {
+    final appProvider = context.watch<AppProvider>();
+    final username = appProvider.username ?? '';
+    return FutureBuilder<bool>(
+      future: FaceAuthService().hasEnrolledFace(username),
+      builder: (context, snapshot) {
+        final enrolled = snapshot.data ?? false;
+        return Container(
+          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+          decoration: BoxDecoration(
+            color: enrolled ? Colors.green.shade100 : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(10.r),
+          ),
+          child: Text(
+            enrolled ? '已录入' : '未录入',
+            style: TextStyle(
+              fontSize: 11.sp,
+              color: enrolled ? Colors.green.shade700 : Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        );
+      },
     );
   }
 

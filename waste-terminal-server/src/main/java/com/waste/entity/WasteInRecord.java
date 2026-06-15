@@ -68,4 +68,10 @@ public class WasteInRecord extends BaseEntity {
     private String offlineId;
 
     private Long enterpriseId;
+
+    private String faceAuthId;
+
+    private String faceId;
+
+    private String operatorFaceImage;
 }

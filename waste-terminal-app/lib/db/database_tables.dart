@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 1;
+  static const int dbVersion = 3;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -17,6 +17,8 @@ class DatabaseTables {
   static const String tableCamera = 'camera';
   static const String tableAiCaptureEvent = 'ai_capture_event';
   static const String tableLocalRecordTask = 'local_record_task';
+  static const String tableUserFace = 'user_face';
+  static const String tableFaceAuthRecord = 'face_auth_record';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (
@@ -80,7 +82,10 @@ class DatabaseTables {
       sync_time TEXT,
       create_time TEXT,
       update_time TEXT,
-      is_deleted INTEGER DEFAULT 0
+      is_deleted INTEGER DEFAULT 0,
+      face_auth_id TEXT,
+      face_id TEXT,
+      operator_face_image TEXT
     )
   ''';
 
@@ -134,7 +139,10 @@ class DatabaseTables {
       sync_time TEXT,
       create_time TEXT,
       update_time TEXT,
-      is_deleted INTEGER DEFAULT 0
+      is_deleted INTEGER DEFAULT 0,
+      face_auth_id TEXT,
+      face_id TEXT,
+      operator_face_image TEXT
     )
   ''';
 
@@ -263,6 +271,52 @@ class DatabaseTables {
     )
   ''';
 
+  static const String createTableUserFace = '''
+    CREATE TABLE $tableUserFace (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      username TEXT,
+      face_id TEXT,
+      face_feature TEXT,
+      face_image TEXT,
+      status INTEGER DEFAULT 1,
+      enroll_quality INTEGER,
+      device_id TEXT,
+      enterprise_id INTEGER,
+      remark TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableFaceAuthRecord = '''
+    CREATE TABLE $tableFaceAuthRecord (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      auth_id TEXT,
+      user_id INTEGER,
+      username TEXT,
+      real_name TEXT,
+      face_id TEXT,
+      similarity REAL,
+      auth_status INTEGER DEFAULT 0,
+      auth_type TEXT,
+      business_type TEXT,
+      business_id TEXT,
+      business_no TEXT,
+      device_id TEXT,
+      ip TEXT,
+      auth_time TEXT,
+      enterprise_id INTEGER,
+      remark TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
   static List<String> getAllCreateTableSql() {
     return [
       createTableWasteCatalog,
@@ -278,6 +332,8 @@ class DatabaseTables {
       createTableCamera,
       createTableAiCaptureEvent,
       createTableLocalRecordTask,
+      createTableUserFace,
+      createTableFaceAuthRecord,
     ];
   }
 }

@@ -12,6 +12,8 @@ import '../db/waste_out_record_db.dart';
 import '../db/transfer_order_db.dart';
 import '../db/inventory_check_db.dart';
 import '../db/warning_record_db.dart';
+import '../db/user_face_db.dart';
+import '../db/face_auth_record_db.dart';
 
 import 'api_service.dart';
 
@@ -47,6 +49,8 @@ class SyncService {
   final CameraDb _cameraDb = CameraDb();
   final AiCaptureEventDb _aiCaptureEventDb = AiCaptureEventDb();
   final LocalRecordTaskDb _localRecordTaskDb = LocalRecordTaskDb();
+  final UserFaceDb _userFaceDb = UserFaceDb();
+  final FaceAuthRecordDb _faceAuthRecordDb = FaceAuthRecordDb();
   final SyncLogDb _syncLogDb = SyncLogDb();
 
   SyncStatus _syncStatus = SyncStatus.idle;
@@ -110,7 +114,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.full;
       _progress = 0.0;
-      _totalCount = 11;
+      _totalCount = 13;
       _completedCount = 0;
 
       await _syncCamera();
@@ -131,20 +135,26 @@ class SyncService {
       await _syncAiCaptureEvent();
       _updateProgress(6);
 
-      await _uploadWasteInRecords();
+      await _syncUserFace();
       _updateProgress(7);
 
-      await _uploadWasteOutRecords();
+      await _uploadWasteInRecords();
       _updateProgress(8);
 
-      await _uploadTransferOrders();
+      await _uploadWasteOutRecords();
       _updateProgress(9);
 
-      await _uploadInventoryChecks();
+      await _uploadTransferOrders();
       _updateProgress(10);
 
-      await _uploadLocalRecords();
+      await _uploadInventoryChecks();
       _updateProgress(11);
+
+      await _uploadLocalRecords();
+      _updateProgress(12);
+
+      await _uploadFaceAuthRecords();
+      _updateProgress(13);
 
       _updateStatus(SyncStatus.success);
 
@@ -198,7 +208,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.incremental;
       _progress = 0.0;
-      _totalCount = 11;
+      _totalCount = 13;
       _completedCount = 0;
 
       await _syncCamera();
@@ -219,20 +229,26 @@ class SyncService {
       await _syncAiCaptureEvent();
       _updateProgress(6);
 
-      await _uploadWasteInRecords();
+      await _syncUserFace();
       _updateProgress(7);
 
-      await _uploadWasteOutRecords();
+      await _uploadWasteInRecords();
       _updateProgress(8);
 
-      await _uploadTransferOrders();
+      await _uploadWasteOutRecords();
       _updateProgress(9);
 
-      await _uploadInventoryChecks();
+      await _uploadTransferOrders();
       _updateProgress(10);
 
-      await _uploadLocalRecords();
+      await _uploadInventoryChecks();
       _updateProgress(11);
+
+      await _uploadLocalRecords();
+      _updateProgress(12);
+
+      await _uploadFaceAuthRecords();
+      _updateProgress(13);
 
       _updateStatus(SyncStatus.success);
 
@@ -556,16 +572,20 @@ class SyncService {
     count += await _transferOrderDb.queryUnsyncedCount();
     count += await _inventoryCheckDb.queryUnsyncedChecksCount();
     count += await _localRecordTaskDb.queryUnsyncedCount();
+    final authRecords = await _faceAuthRecordDb.queryUnsynced();
+    count += authRecords.length;
     return count;
   }
 
   Future<Map<String, int>> getUnsyncedCountByModule() async {
+    final authRecords = await _faceAuthRecordDb.queryUnsynced();
     return {
       'wasteIn': await _wasteInRecordDb.queryUnsyncedCount(),
       'wasteOut': await _wasteOutRecordDb.queryUnsyncedCount(),
       'transferOrder': await _transferOrderDb.queryUnsyncedCount(),
       'inventoryCheck': await _inventoryCheckDb.queryUnsyncedChecksCount(),
       'localRecord': await _localRecordTaskDb.queryUnsyncedCount(),
+      'faceAuthRecord': authRecords.length,
     };
   }
 
@@ -614,6 +634,71 @@ class SyncService {
       _logger.d('AI抓拍事件同步完成，数量: ${eventList.length}');
     } catch (e) {
       _logger.w('AI抓拍事件同步失败: $e');
+    }
+  }
+
+  Future<void> _syncUserFace() async {
+    _currentModule = '人脸信息';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过人脸信息同步');
+        return;
+      }
+
+      final response = await _apiService.get('/user-face/list');
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> faceList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _userFaceDb.replaceAll(faceList);
+      _logger.d('人脸信息同步完成，数量: ${faceList.length}');
+    } catch (e) {
+      _logger.w('人脸信息同步失败: $e');
+    }
+  }
+
+  Future<void> _uploadFaceAuthRecords() async {
+    _currentModule = '人脸认证记录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过人脸认证记录上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _faceAuthRecordDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步人脸认证记录');
+        return;
+      }
+
+      _logger.d('待同步人脸认证记录数量: ${unsynced.length}');
+
+      final response = await _apiService.post(
+        '/face-auth/batch',
+        data: unsynced,
+      );
+
+      if (response.data['code'] == 200) {
+        final authIds = unsynced
+            .map((e) => e['auth_id']?.toString() ?? e['authId']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList();
+        if (authIds.isNotEmpty) {
+          await _faceAuthRecordDb.batchUpdateSyncStatus(authIds, 1);
+        }
+        _logger.d('人脸认证记录上传成功，数量: ${unsynced.length}');
+      } else {
+        _logger.w('人脸认证记录上传失败: ${response.data['msg']}');
+      }
+    } catch (e) {
+      _logger.w('人脸认证记录上传失败: $e');
     }
   }
 

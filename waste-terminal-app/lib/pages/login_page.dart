@@ -10,6 +10,8 @@ import '../config/app_routes.dart';
 import '../providers/app_provider.dart';
 import '../widgets/common_button.dart';
 import '../utils/toast_util.dart';
+import 'face_verify_page.dart';
+import '../services/face_auth_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -251,6 +253,8 @@ class _LoginPageState extends State<LoginPage> {
             _buildRememberMe(),
             SizedBox(height: 24.h),
             _buildLoginButton(),
+            SizedBox(height: 16.h),
+            _buildFaceLoginEntry(),
           ],
         ),
       ),
@@ -393,6 +397,94 @@ class _LoginPageState extends State<LoginPage> {
       loading: _isLoading,
       onPressed: _isLoading ? null : _handleLogin,
     );
+  }
+
+  Widget _buildFaceLoginEntry() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12.w),
+              child: Text('或使用', style: TextStyle(fontSize: 12.sp, color: AppTheme.textSecondary)),
+            ),
+            Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+          ],
+        ),
+        SizedBox(height: 16.h),
+        OutlinedButton.icon(
+          onPressed: _isLoading ? null : _handleFaceLogin,
+          icon: Icon(Icons.face, color: AppTheme.primaryColor, size: 22.sp),
+          label: Text(
+            '人脸识别登录',
+            style: TextStyle(color: AppTheme.primaryColor, fontSize: 14.sp, fontWeight: FontWeight.w500),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(color: AppTheme.primaryColor, width: 1.5),
+            minimumSize: Size(double.infinity, 48.h),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleFaceLogin() async {
+    final faceAuthService = FaceAuthService();
+    final appProvider = context.read<AppProvider>();
+
+    int faceCount = (await faceAuthService.userFaceService.getEnabledFaceList()).length;
+    if (faceCount == 0) {
+      ToastUtil.showWarning('本地暂无录入的人脸数据，请先使用账号密码登录后录入人脸');
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => const FaceVerifyPage(
+          authType: 'login',
+          autoNavigateOnSuccess: false,
+        ),
+      ),
+    );
+
+    if (result != null && result is FaceAuthResult && result.success && result.userFace != null) {
+      setState(() {
+        _isLoading = true;
+      });
+      EasyLoading.show(status: '正在登录...');
+
+      try {
+        final userInfo = {
+          'userId': result.userFace!.userId,
+          'username': result.userFace!.username,
+          'faceId': result.userFace!.faceId,
+          'faceAuthId': result.authId,
+          'loginType': 'face',
+        };
+
+        await appProvider.loginWithFace(
+          userId: result.userFace!.userId!,
+          username: result.userFace!.username!,
+          faceAuthId: result.authId,
+        );
+
+        ToastUtil.showSuccess('人脸登录成功，欢迎 ${result.userFace!.username}');
+
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.main);
+        }
+      } catch (e) {
+        ToastUtil.showError(e.toString().replaceAll('Exception: ', ''));
+      } finally {
+        EasyLoading.dismiss();
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Widget _buildFooter() {

@@ -27,6 +27,9 @@ class WasteInRecord {
   final DateTime? createTime;
   final DateTime? updateTime;
   final int? deleted;
+  final String? faceAuthId;
+  final String? faceId;
+  final String? operatorFaceImage;
 
   WasteInRecord({
     this.id,
@@ -57,6 +60,9 @@ class WasteInRecord {
     this.createTime,
     this.updateTime,
     this.deleted,
+    this.faceAuthId,
+    this.faceId,
+    this.operatorFaceImage,
   });
 
   factory WasteInRecord.fromJson(Map<String, dynamic> json) {
@@ -97,6 +103,9 @@ class WasteInRecord {
           ? DateTime.tryParse(json['updateTime'] as String)
           : null,
       deleted: json['deleted'] as int?,
+      faceAuthId: json['faceAuthId'] as String?,
+      faceId: json['faceId'] as String?,
+      operatorFaceImage: json['operatorFaceImage'] as String?,
     );
   }
 
@@ -130,6 +139,9 @@ class WasteInRecord {
       'createTime': createTime?.toIso8601String(),
       'updateTime': updateTime?.toIso8601String(),
       'deleted': deleted,
+      'faceAuthId': faceAuthId,
+      'faceId': faceId,
+      'operatorFaceImage': operatorFaceImage,
     };
   }
 
@@ -162,6 +174,9 @@ class WasteInRecord {
     DateTime? createTime,
     DateTime? updateTime,
     int? deleted,
+    String? faceAuthId,
+    String? faceId,
+    String? operatorFaceImage,
   }) {
     return WasteInRecord(
       id: id ?? this.id,
@@ -192,6 +207,9 @@ class WasteInRecord {
       createTime: createTime ?? this.createTime,
       updateTime: updateTime ?? this.updateTime,
       deleted: deleted ?? this.deleted,
+      faceAuthId: faceAuthId ?? this.faceAuthId,
+      faceId: faceId ?? this.faceId,
+      operatorFaceImage: operatorFaceImage ?? this.operatorFaceImage,
     );
   }
 }

@@ -31,6 +31,9 @@ class WasteOutRecord {
   final DateTime? createTime;
   final DateTime? updateTime;
   final int? deleted;
+  final String? faceAuthId;
+  final String? faceId;
+  final String? operatorFaceImage;
 
   WasteOutRecord({
     this.id,
@@ -65,6 +68,9 @@ class WasteOutRecord {
     this.createTime,
     this.updateTime,
     this.deleted,
+    this.faceAuthId,
+    this.faceId,
+    this.operatorFaceImage,
   });
 
   factory WasteOutRecord.fromJson(Map<String, dynamic> json) {
@@ -111,6 +117,9 @@ class WasteOutRecord {
           ? DateTime.tryParse(json['updateTime'] as String)
           : null,
       deleted: json['deleted'] as int?,
+      faceAuthId: json['faceAuthId'] as String?,
+      faceId: json['faceId'] as String?,
+      operatorFaceImage: json['operatorFaceImage'] as String?,
     );
   }
 
@@ -148,6 +157,44 @@ class WasteOutRecord {
       'createTime': createTime?.toIso8601String(),
       'updateTime': updateTime?.toIso8601String(),
       'deleted': deleted,
+      'faceAuthId': faceAuthId,
+      'faceId': faceId,
+      'operatorFaceImage': operatorFaceImage,
+    };
+  }
+
+  Map<String, dynamic> toDbMap() {
+    return {
+      'id': id,
+      'record_no': outNo,
+      'transfer_order_id': transferOrderId,
+      'container_id': containerId,
+      'container_code': containerCode,
+      'waste_id': wasteId,
+      'waste_code': wasteCode,
+      'waste_name': wasteName,
+      'weight': weight,
+      'receiver_id': receiverUnitId,
+      'receiver': receiverUnitName,
+      'transporter_id': transporterId,
+      'vehicle_no': vehicleNo,
+      'driver_name': driverName,
+      'driver_phone': driverPhone,
+      'out_time': outTime?.toIso8601String(),
+      'operator_id': operatorId,
+      'operator': operatorName,
+      'remark': remark,
+      'status': status,
+      'sync_status': syncStatus,
+      'sync_time': syncTime?.toIso8601String(),
+      'offline_id': offlineId,
+      'enterprise_id': enterpriseId,
+      'create_time': createTime?.toIso8601String(),
+      'update_time': updateTime?.toIso8601String(),
+      'is_deleted': deleted,
+      'face_auth_id': faceAuthId,
+      'face_id': faceId,
+      'operator_face_image': operatorFaceImage,
     };
   }
 
@@ -184,6 +231,9 @@ class WasteOutRecord {
     DateTime? createTime,
     DateTime? updateTime,
     int? deleted,
+    String? faceAuthId,
+    String? faceId,
+    String? operatorFaceImage,
   }) {
     return WasteOutRecord(
       id: id ?? this.id,
@@ -218,6 +268,9 @@ class WasteOutRecord {
       createTime: createTime ?? this.createTime,
       updateTime: updateTime ?? this.updateTime,
       deleted: deleted ?? this.deleted,
+      faceAuthId: faceAuthId ?? this.faceAuthId,
+      faceId: faceId ?? this.faceId,
+      operatorFaceImage: operatorFaceImage ?? this.operatorFaceImage,
     );
   }
 }
