@@ -72,9 +72,10 @@ class _WasteInPageState extends State<WasteInPage> {
   List<CameraModel> _cameraList = [];
   bool _isRecording = false;
 
-  StreamSubscription<double>? _weightSubscription;
+  StreamSubscription<ScaleReading>? _weightSubscription;
   StreamSubscription<bool>? _stableSubscription;
-  StreamSubscription<ScaleStatus>? _scaleStatusSubscription;
+  StreamSubscription<ScaleServiceStatus>? _scaleStatusSubscription;
+  StreamSubscription<ScaleCalibrationParams>? _paramsSubscription;
 
   @override
   void initState() {
@@ -98,6 +99,7 @@ class _WasteInPageState extends State<WasteInPage> {
     _weightSubscription?.cancel();
     _stableSubscription?.cancel();
     _scaleStatusSubscription?.cancel();
+    _paramsSubscription?.cancel();
     _videoPlayerService.disconnect();
     super.dispose();
   }
@@ -199,15 +201,11 @@ class _WasteInPageState extends State<WasteInPage> {
       _scaleStatusSubscription?.cancel();
       _weightSubscription?.cancel();
       _stableSubscription?.cancel();
+      _paramsSubscription?.cancel();
 
-      await _scaleService.loadSavedParams();
-
-      _scaleStatusSubscription = _scaleService.statusStream.listen((status) {
-        if (mounted) {
-          setState(() {});
-        }
+      _scaleStatusSubscription = _scaleService.statusStream.listen((_) {
+        if (mounted) setState(() {});
       });
-
       _weightSubscription = _scaleService.weightStream.listen((weight) {
         if (mounted) {
           setState(() {
@@ -215,7 +213,6 @@ class _WasteInPageState extends State<WasteInPage> {
           });
         }
       });
-
       _stableSubscription = _scaleService.stableStream.listen((stable) {
         if (mounted) {
           setState(() {
@@ -223,21 +220,27 @@ class _WasteInPageState extends State<WasteInPage> {
           });
         }
       });
+      _paramsSubscription = _scaleService.paramsStream.listen((_) {
+        if (mounted) setState(() {});
+      });
 
-      if (!_scaleService.isConnected) {
-        await _bluetoothService.autoConnectScale();
-        final addr = _bluetoothService.connectedDeviceAddress;
-        if (addr != null) {
-          _scaleService.setDeviceConfig(deviceAddress: addr);
-          if (!_scaleService.isConnected) {
-            try {
-              await _scaleService.connect();
-            } catch (_) {}
-          }
-        }
+      // —— 连接蓝牙 + 按设备地址加载专属校准参数 + 订阅真实重量流 一键完成 ——
+      final String? lastAddr = _scaleService.params.deviceAddress;
+      final target = (_bluetoothService.connectedDeviceAddress ??
+          lastAddr ??
+          '');
+      final ok = await _scaleService.connectAndAttach(
+        deviceAddress: target.isEmpty ? null : target,
+      );
+      if (!ok &&
+          _scaleService.status == ScaleServiceStatus.simulating) {
+        ToastUtil.showInfo('蓝牙不可用，已进入地磅离线演示模式');
+      } else if (ok) {
+        ToastUtil.showSuccess(
+            '地磅已连接${_scaleService.params.isCalibrated ? '，校准参数已加载' : ''}');
       }
     } catch (e) {
-      ToastUtil.showError('连接地磅失败');
+      ToastUtil.showError('连接地磅失败: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 

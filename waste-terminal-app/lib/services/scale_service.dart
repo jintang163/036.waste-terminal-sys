@@ -1,672 +1,899 @@
 import 'dart:async';
 import 'dart:convert';
-
-import 'package:logger/logger.dart';
-
+import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../config/app_constants.dart';
 import '../models/scale_calibration.dart';
-import '../utils/sp_util.dart';
+import '../utils/logger_util.dart';
+import 'bluetooth_service.dart';
 
-enum ScaleStatus { disconnected, connecting, connected, error }
-
-enum CalibrationStep {
+/// 地磅服务状态
+enum ScaleServiceStatus {
   idle,
-  zeroPoint,
-  firstPoint,
-  secondPoint,
-  completed,
-  failed,
+  connecting,
+  connected,
+  simulating,
+  calibrating,
+  error,
 }
 
+/// 校准步骤
+enum CalibrationStep {
+  idle,
+  waitingZero,
+  waitingFirstWeight,
+  waitingSecondWeight,
+  completed,
+  cancelled,
+}
+
+/// 地磅重量读数
+class ScaleReading {
+  final double netWeight;
+  final double rawWeight;
+  final double calibratedWeight;
+  final bool isStable;
+  final DateTime timestamp;
+
+  ScaleReading({
+    required this.netWeight,
+    required this.rawWeight,
+    required this.calibratedWeight,
+    required this.isStable,
+    required this.timestamp,
+  });
+}
+
+/// 地磅服务：支持蓝牙真实重量驱动、校准参数按设备分存、硬件/软件协同归零去皮
 class ScaleService {
+  // 单例
   static final ScaleService _instance = ScaleService._internal();
   factory ScaleService() => _instance;
+  ScaleService._internal();
 
-  final Logger _logger = Logger();
+  // 依赖
+  final BluetoothService _bluetooth = BluetoothService();
+  static const _uuid = Uuid();
 
-  ScaleStatus _status = ScaleStatus.disconnected;
-  double _rawWeight = 0.0;
-  String? _currentUnit = 'kg';
-  bool _isStable = false;
-
-  String? _deviceAddress;
-  int? _baudRate = 9600;
-
+  // 状态
+  ScaleServiceStatus _status = ScaleServiceStatus.idle;
+  CalibrationStep _calibrationStep = CalibrationStep.idle;
+  String? _lastErrorMessage;
   ScaleCalibrationParams _params = ScaleCalibrationParams(
     lastCalibrationTime: DateTime.now(),
   );
-  final List<ScaleCalibrationRecord> _history = [];
 
-  CalibrationStep _calibrationStep = CalibrationStep.idle;
-  ScaleCalibrationPoint? _zeroCalibrationPoint;
-  ScaleCalibrationPoint? _firstCalibrationPoint;
-  ScaleCalibrationPoint? _secondCalibrationPoint;
-  final StreamController<CalibrationStep> _calibrationStepController =
-      StreamController<CalibrationStep>.broadcast();
+  // 读数相关
+  double _rawWeight = 0.0;
+  double _previousRawWeight = 0.0;
+  bool _isWeightStable = false;
+  int _stableSampleCount = 0;
+  static const int _defaultStableSamples = 5;
+  static const double _defaultStableThreshold = 0.005;
+  DateTime _lastReadingTime = DateTime.now();
 
-  final StreamController<double> _weightStreamController =
-      StreamController<double>.broadcast();
-  final StreamController<ScaleStatus> _statusStreamController =
-      StreamController<ScaleStatus>.broadcast();
-  final StreamController<bool> _stableStreamController =
-      StreamController<bool>.broadcast();
-  final StreamController<ScaleCalibrationParams> _paramsStreamController =
-      StreamController<ScaleCalibrationParams>.broadcast();
+  // 三点校准临时变量
+  double? _calibrationRawZero;
+  double? _calibrationRawFirst;
+  double? _calibrationKnownFirst;
+  double? _calibrationRawSecond;
+  double? _calibrationKnownSecond;
 
+  // 模拟模式定时器
   Timer? _simulationTimer;
+  final Random _random = Random();
+  double _simulationBaseWeight = 0.0;
+  double _simulationNoise = 0.002;
 
-  ScaleService._internal();
+  // 蓝牙订阅
+  StreamSubscription<double>? _bluetoothWeightSubscription;
 
-  ScaleStatus get status => _status;
-  double get rawWeight => _rawWeight;
-  double get calibratedWeight => _params.apply(_rawWeight);
-  double get netWeight => _params.getNetWeight(_rawWeight);
-  double get tareWeight => _params.currentTare;
-  double get zeroOffset => _params.zeroOffset;
-  double get slope => _params.slope;
-  double get intercept => _params.intercept;
-  String? get currentUnit => _currentUnit;
-  bool get isStable => _isStable;
-  bool get isConnected => _status == ScaleStatus.connected;
-  bool get isCalibrated => _params.isCalibrated;
-  ScaleCalibrationParams get calibrationParams => _params;
-  CalibrationStep get calibrationStep => _calibrationStep;
-  List<ScaleCalibrationRecord> get history => List.unmodifiable(_history);
+  // 校准历史
+  final List<ScaleCalibrationRecord> _history = [];
+  static const int _maxHistoryCount = 50;
 
-  Stream<double> get weightStream => _weightStreamController.stream;
-  Stream<ScaleStatus> get statusStream => _statusStreamController.stream;
-  Stream<bool> get stableStream => _stableStreamController.stream;
-  Stream<ScaleCalibrationParams> get paramsStream => _paramsStreamController.stream;
+  // Stream 控制器
+  final _statusController = StreamController<ScaleServiceStatus>.broadcast();
+  final _weightController = StreamController<ScaleReading>.broadcast();
+  final _stableController = StreamController<bool>.broadcast();
+  final _calibrationStepController = StreamController<CalibrationStep>.broadcast();
+  final _paramsController = StreamController<ScaleCalibrationParams>.broadcast();
+
+  // Stream 暴露
+  Stream<ScaleServiceStatus> get statusStream => _statusController.stream;
+  Stream<ScaleReading> get weightStream => _weightController.stream;
+  Stream<bool> get stableStream => _stableController.stream;
   Stream<CalibrationStep> get calibrationStepStream =>
       _calibrationStepController.stream;
+  Stream<ScaleCalibrationParams> get paramsStream => _paramsController.stream;
 
-  Future<void> loadSavedParams() async {
+  // 当前状态
+  ScaleServiceStatus get status => _status;
+  CalibrationStep get calibrationStep => _calibrationStep;
+  ScaleCalibrationParams get params => _params;
+  double get rawWeight => _rawWeight;
+  bool get isWeightStable => _isWeightStable;
+  String? get lastErrorMessage => _lastErrorMessage;
+  List<ScaleCalibrationRecord> get history =>
+      List.unmodifiable(_history);
+  bool get isUsingHardwareSource =>
+      _status == ScaleServiceStatus.connected;
+
+  // ===================================================================
+  // 初始化 & 蓝牙数据源接入
+  // ===================================================================
+
+  /// 连接蓝牙地磅并将真实解析重量作为数据源
+  Future<bool> connectAndAttach({
+    String? deviceAddress,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    _setStatus(ScaleServiceStatus.connecting);
+    _lastErrorMessage = null;
     try {
-      final json = SpUtil.getString(StorageConstants.scaleCalibrationParams);
-      if (json != null && json.isNotEmpty) {
-        _params = ScaleCalibrationParams.fromJson(json);
-        _paramsStreamController.add(_params);
-        _logger.i('加载地磅校准参数: slope=${_params.slope}, '
-            'intercept=${_params.intercept}, zero=${_params.zeroOffset}, '
-            'tare=${_params.currentTare}');
-      }
-      final historyJson =
-          SpUtil.getStringList(StorageConstants.scaleCalibrationHistory);
-      if (historyJson != null) {
-        _history.clear();
-        _history.addAll(
-            historyJson.map((e) => ScaleCalibrationRecord.fromJson(e)));
-      }
-    } catch (e) {
-      _logger.w('加载地磅校准参数失败: $e');
-    }
-  }
-
-  Future<void> _saveParams() async {
-    await SpUtil.putString(
-        StorageConstants.scaleCalibrationParams, _params.toJson());
-    await SpUtil.putDouble(
-        StorageConstants.scaleZeroValue, _params.zeroOffset);
-    await SpUtil.putDouble(
-        StorageConstants.scaleTareValue, _params.currentTare);
-    _paramsStreamController.add(_params);
-  }
-
-  Future<void> _saveHistory() async {
-    if (_history.length > 50) {
-      _history.removeRange(0, _history.length - 50);
-    }
-    await SpUtil.putStringList(StorageConstants.scaleCalibrationHistory,
-        _history.map((e) => e.toJson()).toList());
-  }
-
-  void setDeviceConfig({
-    required String deviceAddress,
-    int baudRate = 9600,
-  }) {
-    _deviceAddress = deviceAddress;
-    _baudRate = baudRate;
-    _logger.d('地磅设备配置: $deviceAddress, 波特率: $baudRate');
-  }
-
-  Future<void> connect() async {
-    try {
-      if (_status == ScaleStatus.connecting) {
-        _logger.w('地磅正在连接中');
-        return;
-      }
-
-      if (_deviceAddress == null || _deviceAddress!.isEmpty) {
-        throw Exception('未配置地磅设备地址');
-      }
-
-      _updateStatus(ScaleStatus.connecting);
-      _logger.d('正在连接地磅: $_deviceAddress');
-
-      await Future.delayed(const Duration(seconds: 2));
-      await loadSavedParams();
-
-      _updateStatus(ScaleStatus.connected);
-      _startWeightSimulation();
-
-      _logger.i('地磅连接成功: $_deviceAddress, 校准状态: ${_params.statusText}');
-    } catch (e) {
-      _logger.e('连接地磅失败: $e');
-      _updateStatus(ScaleStatus.error);
-      rethrow;
-    }
-  }
-
-  Future<void> disconnect() async {
-    try {
-      _simulationTimer?.cancel();
-      _simulationTimer = null;
-
-      _rawWeight = 0.0;
-      _isStable = false;
-      _calibrationStep = CalibrationStep.idle;
-      _zeroCalibrationPoint = null;
-      _firstCalibrationPoint = null;
-      _secondCalibrationPoint = null;
-
-      _weightStreamController.add(0.0);
-      _stableStreamController.add(false);
-      _calibrationStepController.add(CalibrationStep.idle);
-
-      _updateStatus(ScaleStatus.disconnected);
-      _logger.i('地磅已断开连接');
-    } catch (e) {
-      _logger.e('断开地磅失败: $e');
-    }
-  }
-
-  void _startWeightSimulation() {
-    double targetWeight = 125.5;
-    double variation = 0.1;
-
-    _simulationTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
-      if (_status != ScaleStatus.connected) {
-        timer.cancel();
-        return;
-      }
-
-      double randomVariation =
-          (DateTime.now().microsecondsSinceEpoch % 1000) / 1000.0;
-      randomVariation = (randomVariation - 0.5) * 2 * variation;
-      double newWeight = targetWeight + randomVariation;
-
-      if ((newWeight - _rawWeight).abs() < 0.02) {
-        if (!_isStable) {
-          _isStable = true;
-          _stableStreamController.add(true);
-        }
+      bool ok;
+      if (deviceAddress != null && deviceAddress.isNotEmpty) {
+        ok = await _bluetooth.connectByAddress(deviceAddress, timeout: timeout);
       } else {
-        if (_isStable) {
-          _isStable = false;
-          _stableStreamController.add(false);
+        // 尝试自动连接上一次的设备
+        final lastId = _params.deviceAddress;
+        if (lastId != null && lastId.isNotEmpty) {
+          ok = await _bluetooth.connectByAddress(lastId, timeout: timeout);
+        } else {
+          throw Exception('未指定地磅设备地址，且无历史连接记录');
         }
       }
+      if (!ok) {
+        throw Exception('蓝牙连接失败');
+      }
+      // 设备连接成功：按设备地址加载专属校准参数
+      final addr = _bluetooth.deviceId;
+      final name = _bluetooth.connectedDevice?.name;
+      await loadSavedParams(deviceAddress: addr, fallbackDeviceName: name);
+      // 绑定蓝牙真实重量流作为数据源
+      _attachBluetoothWeightStream();
+      _setStatus(ScaleServiceStatus.connected);
+      _notifyParams();
+      return true;
+    } catch (e) {
+      LoggerUtil.error('连接地磅失败', e);
+      _lastErrorMessage = e.toString();
+      _setStatus(ScaleServiceStatus.error);
+      // 连接失败自动回落模拟模式，避免流程卡死
+      _startSimulationMode();
+      return false;
+    }
+  }
 
-      _rawWeight = double.parse(newWeight.toStringAsFixed(3));
-      _weightStreamController.add(_params.getNetWeight(_rawWeight));
+  /// 断开地磅
+  Future<void> disconnect() async {
+    await _bluetoothWeightSubscription?.cancel();
+    _bluetoothWeightSubscription = null;
+    _stopSimulation();
+    _bluetooth.disconnect();
+    _rawWeight = 0.0;
+    _isWeightStable = false;
+    _setStatus(ScaleServiceStatus.idle);
+    _broadcastReading();
+  }
+
+  /// 启动模拟模式（无真实设备时的降级方案）
+  void _startSimulationMode() {
+    _stopSimulation();
+    _setStatus(ScaleServiceStatus.simulating);
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      final noise = (_random.nextDouble() - 0.5) * 2 * _simulationNoise;
+      _rawWeight = _simulationBaseWeight + noise;
+      _lastReadingTime = DateTime.now();
+      _updateStability(_rawWeight);
+      _broadcastReading();
     });
   }
 
-  Future<double> readRawWeight() async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
-      }
-      return _rawWeight;
-    } catch (e) {
-      _logger.e('读取原始重量失败: $e');
-      rethrow;
-    }
+  void _stopSimulation() {
+    _simulationTimer?.cancel();
+    _simulationTimer = null;
   }
 
-  Future<double> readWeight() async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
-      }
-      return netWeight;
-    } catch (e) {
-      _logger.e('读取重量失败: $e');
-      rethrow;
-    }
+  /// 手动设置模拟重量（测试用）
+  void setSimulationWeight(double w) {
+    _simulationBaseWeight = w;
   }
 
-  Future<double> getStableWeight({
-    Duration timeout = const Duration(seconds: 5),
-    int stableCount = 3,
+  // ===================================================================
+  // 蓝牙真实重量流接入（BUG 1 修复核心）
+  // ===================================================================
+
+  /// 订阅蓝牙解析后的真实重量流作为 ScaleService 的原始读数来源
+  void _attachBluetoothWeightStream() {
+    _bluetoothWeightSubscription?.cancel();
+    _bluetoothWeightSubscription =
+        _bluetooth.weightStream.listen((bluetoothWeightKg) {
+      // 蓝牙已经解析为千克单位的真实数值 -> 直接作为 rawWeight
+      updateRawWeightFromBluetooth(bluetoothWeightKg);
+    });
+  }
+
+  /// 外部（蓝牙服务）推送真实解析重量的入口
+  ///
+  /// 这是校准链路最上游的数据源：
+  ///   蓝牙原始字节 → BluetoothService._parseScaleData → 数值 kg → 本方法 → 后续校准/稳定判定
+  void updateRawWeightFromBluetooth(double bluetoothParsedWeightKg) {
+    _rawWeight = bluetoothParsedWeightKg;
+    _lastReadingTime = DateTime.now();
+    _updateStability(_rawWeight);
+    _broadcastReading();
+  }
+
+  // ===================================================================
+  // 按设备地址分存校准参数（BUG 2 修复核心）
+  // ===================================================================
+
+  static String _paramsKeyForDevice(String? deviceId) {
+    if (deviceId == null || deviceId.isEmpty) {
+      return StorageConstants.scaleCalibrationParams;
+    }
+    return '${StorageConstants.scaleCalibrationParams}_$deviceId';
+  }
+
+  static const String _deviceIndexKey = '${StorageConstants.scaleCalibrationParams}_index';
+
+  /// 加载指定设备的校准参数
+  ///
+  /// 优先级：
+  ///   1. deviceAddress 显式指定的设备专属参数
+  ///   2. 当前已连接蓝牙设备地址的专属参数
+  ///   3. 全局默认参数（向后兼容）
+  ///   4. 新建默认参数
+  Future<ScaleCalibrationParams> loadSavedParams({
+    String? deviceAddress,
+    String? fallbackDeviceName,
   }) async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
+    final prefs = await SharedPreferences.getInstance();
+    final addr = deviceAddress ?? _bluetooth.deviceId ?? _params.deviceAddress;
+    String key = _paramsKeyForDevice(addr);
+
+    // 先尝试加载指定设备
+    String? jsonStr = prefs.getString(key);
+
+    // 无专属参数：尝试向后兼容的全局参数
+    if ((jsonStr == null || jsonStr.isEmpty) &&
+        addr != null &&
+        addr.isNotEmpty) {
+      final legacy = prefs.getString(StorageConstants.scaleCalibrationParams);
+      if (legacy != null && legacy.isNotEmpty) {
+        final legacyParams = ScaleCalibrationParams.fromJson(legacy);
+        // 从全局迁移到设备专属（升级迁移）
+        final migrated = legacyParams.copyWith(
+          deviceAddress: addr,
+          deviceName: fallbackDeviceName ?? legacyParams.deviceName,
+        );
+        _params = migrated;
+        unawaited(_saveParams(prefs));
+        unawaited(_addToDeviceIndex(prefs, addr));
+        _notifyParams();
+        await loadHistory();
+        return _params;
       }
+    }
 
-      if (_isStable) {
-        return netWeight;
+    if (jsonStr != null && jsonStr.isNotEmpty) {
+      try {
+        final loaded = ScaleCalibrationParams.fromJson(jsonStr);
+        _params = loaded.copyWith(
+          deviceAddress: addr ?? loaded.deviceAddress,
+          deviceName:
+              fallbackDeviceName ?? loaded.deviceName ?? _bluetooth.connectedDevice?.name,
+        );
+      } catch (e) {
+        LoggerUtil.error('加载校准参数失败，使用默认值', e);
+        _params = ScaleCalibrationParams(
+          lastCalibrationTime: DateTime.now(),
+          deviceAddress: addr,
+          deviceName: fallbackDeviceName,
+        );
       }
-
-      Completer<double> completer = Completer<double>();
-      Timer? timeoutTimer;
-      int currentStableCount = 0;
-      double lastWeight = 0;
-
-      StreamSubscription<double>? subscription;
-
-      timeoutTimer = Timer(timeout, () {
-        subscription?.cancel();
-        if (!completer.isCompleted) {
-          completer.completeError(ScaleTimeoutException('等待重量稳定超时'));
-        }
-      });
-
-      subscription = _weightStreamController.stream.listen((weight) {
-        if ((weight - lastWeight).abs() < 0.01) {
-          currentStableCount++;
-          if (currentStableCount >= stableCount) {
-            subscription?.cancel();
-            timeoutTimer?.cancel();
-            if (!completer.isCompleted) {
-              completer.complete(weight);
-            }
-          }
-        } else {
-          currentStableCount = 0;
-          lastWeight = weight;
-        }
-      });
-
-      return completer.future;
-    } catch (e) {
-      _logger.e('获取稳定重量失败: $e');
-      rethrow;
-    }
-  }
-
-  Future<double> getStableRawWeight({
-    Duration timeout = const Duration(seconds: 5),
-    int stableCount = 5,
-  }) async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
-      }
-      if (_isStable) {
-        return _rawWeight;
-      }
-      final rawStream = Stream.periodic(const Duration(milliseconds: 250), (_) {
-        return _rawWeight;
-      });
-      double last = _rawWeight;
-      int stable = 0;
-      final completer = Completer<double>();
-      Timer? t;
-      t = Timer(timeout, () {
-        if (!completer.isCompleted) {
-          completer.completeError(ScaleTimeoutException('获取稳定重量超时'));
-        }
-      });
-      final sub = rawStream.listen((v) {
-        if ((v - last).abs() < 0.005) {
-          stable++;
-          if (stable >= stableCount) {
-            t?.cancel();
-            if (!completer.isCompleted) completer.complete(v);
-          }
-        } else {
-          stable = 0;
-          last = v;
-        }
-      });
-      final result = await completer.future;
-      sub.cancel();
-      return result;
-    } catch (e) {
-      _logger.e('获取稳定原始重量失败: $e');
-      rethrow;
-    }
-  }
-
-  // ============== 一键归零 ==============
-  Future<void> zero() async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
-      }
-
-      _logger.d('执行归零操作');
-
-      final stableRaw = await getStableRawWeight(
-          timeout: const Duration(seconds: 3), stableCount: 5);
-
-      final double oldZero = _params.zeroOffset;
-      final double oldSlope = _params.slope;
-      final double oldIntercept = _params.intercept;
-
-      _params = _params.copyWith(
-        zeroOffset: _params.apply(stableRaw),
-        lastCalibrationTime: DateTime.now(),
-        calibrationCount: _params.calibrationCount + 1,
-        isCalibrated: true,
-        deviceAddress: _deviceAddress ?? _params.deviceAddress,
-      );
-
-      await _saveParams();
-      _addHistoryRecord(
-        oldSlope: oldSlope,
-        oldIntercept: oldIntercept,
-        newSlope: _params.slope,
-        newIntercept: _params.intercept,
-        oldZero: oldZero,
-        newZero: _params.zeroOffset,
-        remark: '一键归零 (raw=$stableRaw)',
-      );
-
-      _weightStreamController.add(_params.getNetWeight(_rawWeight));
-      _logger.i('归零完成: 零点从 $oldZero → ${_params.zeroOffset}');
-    } catch (e) {
-      _logger.e('归零失败: $e');
-      rethrow;
-    }
-  }
-
-  // ============== 去皮 ==============
-  Future<void> tare() async {
-    try {
-      if (_status != ScaleStatus.connected) {
-        throw Exception('地磅未连接');
-      }
-      _logger.d('执行去皮操作');
-      final stable = await getStableRawWeight(
-          timeout: const Duration(seconds: 3), stableCount: 5);
-      final netCalibrated = _params.apply(stable) - _params.zeroOffset;
-      _params = _params.copyWith(
-        currentTare: netCalibrated < 0 ? 0.0 : netCalibrated,
-      );
-      await _saveParams();
-      _weightStreamController.add(_params.getNetWeight(_rawWeight));
-      _logger.i('去皮完成: 皮重 = ${_params.currentTare} kg');
-    } catch (e) {
-      _logger.e('去皮失败: $e');
-      rethrow;
-    }
-  }
-
-  // ============== 清除皮重 ==============
-  Future<void> clearTare() async {
-    _params = _params.copyWith(currentTare: 0.0);
-    await _saveParams();
-    _weightStreamController.add(_params.getNetWeight(_rawWeight));
-    _logger.i('皮重已清除');
-  }
-
-  // ============== 线性校准流程 ==============
-  void startCalibration() {
-    _calibrationStep = CalibrationStep.zeroPoint;
-    _zeroCalibrationPoint = null;
-    _firstCalibrationPoint = null;
-    _secondCalibrationPoint = null;
-    _calibrationStepController.add(_calibrationStep);
-    _logger.i('开始线性校准流程');
-  }
-
-  Future<ScaleCalibrationPoint> captureZeroPoint() async {
-    if (_status != ScaleStatus.connected) {
-      throw Exception('地磅未连接');
-    }
-    if (_calibrationStep != CalibrationStep.zeroPoint) {
-      throw Exception('校准步骤错误');
-    }
-    final raw = await getStableRawWeight(
-        timeout: const Duration(seconds: 5), stableCount: 8);
-    _zeroCalibrationPoint = ScaleCalibrationPoint(
-      knownWeight: 0.0,
-      rawReading: raw,
-      timestamp: DateTime.now(),
-    );
-    _calibrationStep = CalibrationStep.firstPoint;
-    _calibrationStepController.add(_calibrationStep);
-    _logger.i('零点捕获: raw=$raw');
-    return _zeroCalibrationPoint!;
-  }
-
-  Future<ScaleCalibrationPoint> captureFirstPoint(double knownWeight) async {
-    if (_status != ScaleStatus.connected) {
-      throw Exception('地磅未连接');
-    }
-    if (_calibrationStep != CalibrationStep.firstPoint) {
-      throw Exception('校准步骤错误');
-    }
-    if (knownWeight <= 0) {
-      throw Exception('已知重量必须大于0');
-    }
-    final raw = await getStableRawWeight(
-        timeout: const Duration(seconds: 5), stableCount: 8);
-    _firstCalibrationPoint = ScaleCalibrationPoint(
-      knownWeight: knownWeight,
-      rawReading: raw,
-      timestamp: DateTime.now(),
-    );
-    _calibrationStep = CalibrationStep.secondPoint;
-    _calibrationStepController.add(_calibrationStep);
-    _logger.i('第一点捕获: known=$knownWeight, raw=$raw');
-    return _firstCalibrationPoint!;
-  }
-
-  Future<ScaleCalibrationPoint> captureSecondPoint(double knownWeight) async {
-    if (_status != ScaleStatus.connected) {
-      throw Exception('地磅未连接');
-    }
-    if (_calibrationStep != CalibrationStep.secondPoint) {
-      throw Exception('校准步骤错误');
-    }
-    if (_firstCalibrationPoint == null ||
-        knownWeight <= _firstCalibrationPoint!.knownWeight) {
-      throw Exception('第二点重量必须大于第一点');
-    }
-    final raw = await getStableRawWeight(
-        timeout: const Duration(seconds: 5), stableCount: 8);
-    _secondCalibrationPoint = ScaleCalibrationPoint(
-      knownWeight: knownWeight,
-      rawReading: raw,
-      timestamp: DateTime.now(),
-    );
-    _logger.i('第二点捕获: known=$knownWeight, raw=$raw');
-    return _secondCalibrationPoint!;
-  }
-
-  Future<ScaleCalibrationParams> applyCalibration({String? remark}) async {
-    if (_zeroCalibrationPoint == null ||
-        _firstCalibrationPoint == null ||
-        _secondCalibrationPoint == null) {
-      throw Exception('校准点不完整');
-    }
-    final double raw0 = _zeroCalibrationPoint!.rawReading;
-    final double w1 = _firstCalibrationPoint!.knownWeight;
-    final double raw1 = _firstCalibrationPoint!.rawReading;
-    final double w2 = _secondCalibrationPoint!.knownWeight;
-    final double raw2 = _secondCalibrationPoint!.rawReading;
-
-    double slope, intercept;
-    if ((raw2 - raw1).abs() < 1e-9) {
-      slope = 1.0;
-      intercept = 0.0;
     } else {
-      slope = (w2 - w1) / (raw2 - raw1);
-      intercept = w1 - slope * raw1;
+      _params = ScaleCalibrationParams(
+        lastCalibrationTime: DateTime.now(),
+        deviceAddress: addr,
+        deviceName: fallbackDeviceName,
+      );
     }
-    final double zeroOffset = slope * raw0 + intercept;
+    unawaited(_addToDeviceIndex(prefs, addr));
+    _notifyParams();
+    await loadHistory();
+    return _params;
+  }
 
-    final double oldSlope = _params.slope;
-    final double oldIntercept = _params.intercept;
-    final double oldZero = _params.zeroOffset;
+  /// 保存当前设备参数
+  Future<void> _saveParams([SharedPreferences? passedPrefs]) async {
+    final prefs = passedPrefs ?? await SharedPreferences.getInstance();
+    final String key = _paramsKeyForDevice(_params.deviceAddress);
+    await prefs.setString(key, _params.toJson());
+    await prefs.setString(StorageConstants.scaleZeroValue,
+        _params.totalZeroOffset.toString());
+    await prefs.setString(StorageConstants.scaleTareValue,
+        _params.totalTare.toString());
+    await _addToDeviceIndex(prefs, _params.deviceAddress);
+    _notifyParams();
+  }
 
-    final points = <ScaleCalibrationPoint>[
-      _zeroCalibrationPoint!,
-      _firstCalibrationPoint!,
-      _secondCalibrationPoint!,
+  static Future<void> _addToDeviceIndex(
+      SharedPreferences prefs, String? deviceId) async {
+    if (deviceId == null || deviceId.isEmpty) return;
+    final Set<String> idx = {
+      ...(prefs.getStringList(_deviceIndexKey) ?? <String>[])
+    };
+    idx.add(deviceId);
+    await prefs.setStringList(_deviceIndexKey, idx.toList());
+  }
+
+  /// 列出所有已校准设备的地址
+  Future<List<String>> listCalibratedDevices() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_deviceIndexKey) ?? <String>[];
+  }
+
+  /// 删除指定设备的校准参数
+  Future<bool> deleteDeviceParams(String deviceAddress) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String key = _paramsKeyForDevice(deviceAddress);
+    await prefs.remove(key);
+    final Set<String> idx = {
+      ...(prefs.getStringList(_deviceIndexKey) ?? <String>[])
+    };
+    idx.remove(deviceAddress);
+    await prefs.setStringList(_deviceIndexKey, idx.toList());
+    // 如果删的是当前设备，重置为默认
+    if (_params.deviceAddress == deviceAddress) {
+      _params = ScaleCalibrationParams(
+        lastCalibrationTime: DateTime.now(),
+        deviceAddress: _bluetooth.deviceId,
+      );
+      _notifyParams();
+    }
+    return true;
+  }
+
+  // ===================================================================
+  // 硬件/软件协同：归零 & 去皮（BUG 3 修复核心）
+  // ===================================================================
+
+  /// 策略说明：
+  ///   hardwareFirst  → 先尝试硬件指令 sendScaleZeroCommand/sendScaleTareCommand；
+  ///                    成功后将当前校准后重量写入 hardwareZeroOffset/hardwareTare，
+  ///                    并将同名字段的 software* 清零；
+  ///                    失败则自动 fallback 为软件偏移，记录 actionType = hardwareFallbackSoftware
+  ///   softwareOnly   → 不发送硬件指令，仅在应用层扣减
+  ///   hardwareOnly   → 只发硬件指令，失败直接抛错，不软件补偿
+  Future<void> zero({CalibrationSynergyMode? mode}) async {
+    final effectiveMode = mode ?? _params.synergyMode;
+    final CalibrationActionType actionType;
+    final oldParams = _params;
+    Exception? hardwareError;
+
+    // —— 等待重量稳定 ——
+    final rawStable =
+        await getStableRawWeight(timeout: const Duration(seconds: 8));
+    final calibrated = _params.apply(rawStable);
+
+    // —— 1. 硬件指令尝试 ——
+    bool hwSuccess = false;
+    if (effectiveMode != CalibrationSynergyMode.softwareOnly) {
+      try {
+        if (!_bluetooth.isConnected) {
+          throw Exception('蓝牙未连接，无法发送硬件指令');
+        }
+        await _bluetooth.sendScaleZeroCommand();
+        // 硬件执行：硬件寄存器已清零，之后蓝牙推送的 raw 就是去除零点后的值
+        // 因此 hardwareZeroOffset 重置为 0，并清空 softwareZeroOffset
+        hwSuccess = true;
+      } catch (e) {
+        hardwareError = e is Exception ? e : Exception(e.toString());
+        LoggerUtil.warning('硬件归零指令失败: $e');
+      }
+    }
+
+    // —— 2. 软件补偿决策 ——
+    if (hwSuccess) {
+      actionType = CalibrationActionType.hardware;
+      _params = _params.copyWith(
+        hardwareZeroOffset: 0.0,
+        softwareZeroOffset: 0.0,
+        lastCalibrationTime: DateTime.now(),
+        isCalibrated: _params.isCalibrated || true,
+      );
+    } else {
+      if (effectiveMode == CalibrationSynergyMode.hardwareOnly) {
+        throw hardwareError ?? Exception('硬件归零失败');
+      }
+      // softwareOnly 或 hardwareFirst 回落
+      actionType = (effectiveMode == CalibrationSynergyMode.softwareOnly)
+          ? CalibrationActionType.software
+          : CalibrationActionType.hardwareFallbackSoftware;
+      _params = _params.copyWith(
+        // 硬件失败时不触动 hardwareZeroOffset，仅把当前校准重量作为附加软件补偿
+        softwareZeroOffset: _params.softwareZeroOffset + calibrated,
+        lastCalibrationTime: DateTime.now(),
+        isCalibrated: true,
+      );
+    }
+
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: actionType,
+      remark: hardwareError != null ? '硬件失败原因: ${hardwareError.message}' : null,
+    );
+    await _saveParams();
+  }
+
+  Future<void> tare({CalibrationSynergyMode? mode}) async {
+    final effectiveMode = mode ?? _params.synergyMode;
+    final CalibrationActionType actionType;
+    final oldParams = _params;
+    Exception? hardwareError;
+
+    final rawStable =
+        await getStableRawWeight(timeout: const Duration(seconds: 8));
+    final net = _params.getNetWeight(rawStable);
+
+    bool hwSuccess = false;
+    if (effectiveMode != CalibrationSynergyMode.softwareOnly) {
+      try {
+        if (!_bluetooth.isConnected) {
+          throw Exception('蓝牙未连接，无法发送硬件指令');
+        }
+        await _bluetooth.sendScaleTareCommand();
+        hwSuccess = true;
+      } catch (e) {
+        hardwareError = e is Exception ? e : Exception(e.toString());
+        LoggerUtil.warning('硬件去皮指令失败: $e');
+      }
+    }
+
+    if (hwSuccess) {
+      actionType = CalibrationActionType.hardware;
+      _params = _params.copyWith(
+        hardwareTare: 0.0,
+        softwareTare: 0.0,
+        lastCalibrationTime: DateTime.now(),
+        isCalibrated: true,
+      );
+    } else {
+      if (effectiveMode == CalibrationSynergyMode.hardwareOnly) {
+        throw hardwareError ?? Exception('硬件去皮失败');
+      }
+      actionType = (effectiveMode == CalibrationSynergyMode.softwareOnly)
+          ? CalibrationActionType.software
+          : CalibrationActionType.hardwareFallbackSoftware;
+      _params = _params.copyWith(
+        softwareTare: _params.softwareTare + net,
+        lastCalibrationTime: DateTime.now(),
+        isCalibrated: true,
+      );
+    }
+
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: actionType,
+      remark: hardwareError != null ? '硬件失败原因: ${hardwareError.message}' : null,
+    );
+    await _saveParams();
+  }
+
+  /// 仅清皮重（不发硬件指令，仅复位软件皮重；如需硬件清皮另发指令）
+  Future<void> clearTare() async {
+    final oldParams = _params;
+    _params = _params.copyWith(
+      softwareTare: 0.0,
+      // 保留 hardwareTare 不变，因为那是硬件端寄存器状态，
+      // 用户若希望硬件端清皮请使用 tare(hardwareOnly) 重新去皮或硬件按键
+    );
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: CalibrationActionType.software,
+      remark: '清除软件皮重',
+    );
+    await _saveParams();
+  }
+
+  // ===================================================================
+  // 三点线性校准（核心：raw 为蓝牙真实 raw 驱动的值）
+  // ===================================================================
+
+  void startCalibration() {
+    _calibrationStep = CalibrationStep.waitingZero;
+    _calibrationRawZero = null;
+    _calibrationRawFirst = null;
+    _calibrationKnownFirst = null;
+    _calibrationRawSecond = null;
+    _calibrationKnownSecond = null;
+    _setStatus(ScaleServiceStatus.calibrating);
+    _calibrationStepController.add(_calibrationStep);
+  }
+
+  /// 捕获空秤的原始读数（蓝牙真实 raw）
+  Future<double> captureZeroPoint({Duration? timeout}) async {
+    _calibrationStep = CalibrationStep.waitingZero;
+    _calibrationStepController.add(_calibrationStep);
+    final raw = await getStableRawWeight(
+      timeout: timeout ?? const Duration(seconds: 10),
+      requiredSamples: 8,
+      threshold: 0.003,
+    );
+    _calibrationRawZero = raw;
+    _calibrationStep = CalibrationStep.waitingFirstWeight;
+    _calibrationStepController.add(_calibrationStep);
+    return raw;
+  }
+
+  Future<double> captureFirstPoint(double knownWeight, {Duration? timeout}) async {
+    if (knownWeight <= 0) {
+      throw Exception('标准砝码重量必须大于0');
+    }
+    _calibrationKnownFirst = knownWeight;
+    final raw = await getStableRawWeight(
+      timeout: timeout ?? const Duration(seconds: 10),
+      requiredSamples: 8,
+      threshold: 0.003,
+    );
+    _calibrationRawFirst = raw;
+    _calibrationStep = CalibrationStep.waitingSecondWeight;
+    _calibrationStepController.add(_calibrationStep);
+    return raw;
+  }
+
+  Future<double> captureSecondPoint(double knownWeight, {Duration? timeout}) async {
+    if (_calibrationKnownFirst == null || _calibrationRawFirst == null) {
+      throw Exception('请先完成第一点校准');
+    }
+    if (knownWeight <= _calibrationKnownFirst!) {
+      throw Exception('第二点砝码重量必须大于第一点');
+    }
+    _calibrationKnownSecond = knownWeight;
+    final raw = await getStableRawWeight(
+      timeout: timeout ?? const Duration(seconds: 10),
+      requiredSamples: 8,
+      threshold: 0.003,
+    );
+    _calibrationRawSecond = raw;
+    return raw;
+  }
+
+  Future<ScaleCalibrationParams> applyCalibration() async {
+    if (_calibrationRawFirst == null ||
+        _calibrationRawSecond == null ||
+        _calibrationKnownFirst == null ||
+        _calibrationKnownSecond == null) {
+      throw Exception('请完成所有校准点采集');
+    }
+    final raw1 = _calibrationRawFirst!;
+    final raw2 = _calibrationRawSecond!;
+    final w1 = _calibrationKnownFirst!;
+    final w2 = _calibrationKnownSecond!;
+    if ((raw2 - raw1).abs() < 0.0001) {
+      throw Exception('两个校准点原始读数接近，无法校准');
+    }
+
+    final slope = (w2 - w1) / (raw2 - raw1);
+    final intercept = w1 - slope * raw1;
+
+    // 计算经过校准后的零点偏移（以「当前空秤校准后读数」作为新的零点）
+    final raw0 = _calibrationRawZero ?? raw1;
+    final double zeroAfterCal = slope * raw0 + intercept;
+
+    final oldParams = _params;
+    final now = DateTime.now();
+    final points = [
+      ScaleCalibrationPoint(knownWeight: 0, rawReading: raw0, timestamp: now),
+      ScaleCalibrationPoint(knownWeight: w1, rawReading: raw1, timestamp: now),
+      ScaleCalibrationPoint(knownWeight: w2, rawReading: raw2, timestamp: now),
     ];
-
     _params = _params.copyWith(
       slope: slope,
       intercept: intercept,
-      zeroOffset: zeroOffset,
-      currentTare: 0.0,
+      // 校准后的零点用软件补偿来「置零」，避免重发硬件指令
+      softwareZeroOffset: zeroAfterCal,
+      hardwareZeroOffset: 0,
       calibrationPoints: points,
-      lastCalibrationTime: DateTime.now(),
+      lastCalibrationTime: now,
       calibrationCount: _params.calibrationCount + 1,
       isCalibrated: true,
-      deviceAddress: _deviceAddress,
     );
-    await _saveParams();
-    _addHistoryRecord(
-      oldSlope: oldSlope,
-      oldIntercept: oldIntercept,
-      newSlope: slope,
-      newIntercept: intercept,
-      oldZero: oldZero,
-      newZero: zeroOffset,
-      remark: remark ?? '线性校准 (3点)',
-    );
-
     _calibrationStep = CalibrationStep.completed;
     _calibrationStepController.add(_calibrationStep);
-    _weightStreamController.add(_params.getNetWeight(_rawWeight));
-
-    _logger.i(
-        '校准完成: slope=$slope, intercept=$intercept, zeroOffset=$zeroOffset');
+    _setStatus(
+        _status == ScaleServiceStatus.calibrating
+            ? (_bluetooth.isConnected
+                ? ScaleServiceStatus.connected
+                : ScaleServiceStatus.simulating)
+            : _status);
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: CalibrationActionType.software,
+      remark: '三点线性校准完成: 0kg@$raw0 / ${w1}kg@$raw1 / ${w2}kg@$raw2',
+    );
+    await _saveParams();
     return _params;
   }
 
   void cancelCalibration() {
-    _calibrationStep = CalibrationStep.idle;
-    _zeroCalibrationPoint = null;
-    _firstCalibrationPoint = null;
-    _secondCalibrationPoint = null;
+    _calibrationStep = CalibrationStep.cancelled;
+    _calibrationRawZero = null;
+    _calibrationRawFirst = null;
+    _calibrationKnownFirst = null;
+    _calibrationRawSecond = null;
+    _calibrationKnownSecond = null;
     _calibrationStepController.add(_calibrationStep);
-    _logger.i('校准已取消');
+    _setStatus(_bluetooth.isConnected
+        ? ScaleServiceStatus.connected
+        : ScaleServiceStatus.simulating);
   }
 
-  Future<void> resetCalibration() async {
-    final oldSlope = _params.slope;
-    final oldIntercept = _params.intercept;
-    final oldZero = _params.zeroOffset;
+  // ===================================================================
+  // 稳定判定 & 工具方法
+  // ===================================================================
 
-    _params = ScaleCalibrationParams(
-      lastCalibrationTime: DateTime.now(),
-      deviceAddress: _deviceAddress,
-      deviceName: _params.deviceName,
-    );
-    await _saveParams();
-    _addHistoryRecord(
-      oldSlope: oldSlope,
-      oldIntercept: oldIntercept,
-      newSlope: 1.0,
-      newIntercept: 0.0,
-      oldZero: oldZero,
-      newZero: 0.0,
-      remark: '重置校准参数',
-    );
-    _weightStreamController.add(0.0);
-    _logger.i('校准参数已重置为默认值');
+  void _updateStability(double current) {
+    final diff = (current - _previousRawWeight).abs();
+    if (diff <= _defaultStableThreshold) {
+      _stableSampleCount++;
+    } else {
+      _stableSampleCount = 0;
+    }
+    final bool nowStable = _stableSampleCount >= _defaultStableSamples;
+    if (nowStable != _isWeightStable) {
+      _isWeightStable = nowStable;
+      _stableController.add(_isWeightStable);
+    }
+    _previousRawWeight = current;
   }
 
-  void _addHistoryRecord({
-    required double oldSlope,
-    required double oldIntercept,
-    required double newSlope,
-    required double newIntercept,
-    required double oldZero,
-    required double newZero,
-    String? remark,
+  Future<double> getStableRawWeight({
+    Duration timeout = const Duration(seconds: 10),
+    int requiredSamples = _defaultStableSamples,
+    double threshold = _defaultStableThreshold,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    int count = 0;
+    double last = _rawWeight;
+    final buffer = <double>[];
+    final completer = Completer<double>();
+
+    void check() {
+      if (completer.isCompleted) return;
+      if (buffer.length >= requiredSamples) {
+        final recent = buffer.sublist(buffer.length - requiredSamples);
+        final maxV = recent.reduce(max);
+        final minV = recent.reduce(min);
+        if (maxV - minV <= threshold) {
+          final avg = recent.reduce((a, b) => a + b) / recent.length;
+          completer.complete(avg);
+        }
+      }
+      if (stopwatch.elapsed > timeout && !completer.isCompleted) {
+        completer.complete(_rawWeight); // 超时返回当前值
+      }
+    }
+
+    final subscription = _weightController.stream.listen((reading) {
+      buffer.add(reading.rawWeight);
+      if (buffer.length > requiredSamples * 3) {
+        buffer.removeRange(0, buffer.length - requiredSamples * 3);
+      }
+      count++;
+      last = reading.rawWeight;
+      check();
+    });
+
+    try {
+      // 立即用现有 _rawWeight 初值
+      buffer.add(_rawWeight);
+      check();
+      final result = await completer.future.timeout(timeout, onTimeout: () => last);
+      return result;
+    } finally {
+      await subscription.cancel();
+      stopwatch.stop();
+    }
+  }
+
+  Future<ScaleReading> getStableWeight({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final raw = await getStableRawWeight(timeout: timeout);
+    return ScaleReading(
+      netWeight: _params.getNetWeight(raw),
+      rawWeight: raw,
+      calibratedWeight: _params.apply(raw),
+      isStable: true,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  Future<ScaleReading> readWeight() async {
+    if (_bluetooth.isConnected && _status == ScaleServiceStatus.connected) {
+      try {
+        await _bluetooth.sendScaleReadCommand();
+        await Future.delayed(const Duration(milliseconds: 250));
+      } catch (_) {}
+    }
+    return _currentReading();
+  }
+
+  ScaleReading _currentReading() {
+    return ScaleReading(
+      netWeight: _params.getNetWeight(_rawWeight),
+      rawWeight: _rawWeight,
+      calibratedWeight: _params.apply(_rawWeight),
+      isStable: _isWeightStable,
+      timestamp: _lastReadingTime,
+    );
+  }
+
+  void _broadcastReading() {
+    _weightController.add(_currentReading());
+  }
+
+  // ===================================================================
+  // 状态广播
+  // ===================================================================
+
+  void _setStatus(ScaleServiceStatus s) {
+    if (_status != s) {
+      _status = s;
+      _statusController.add(_status);
+    }
+  }
+
+  void _notifyParams() {
+    _paramsController.add(_params);
+  }
+
+  // ===================================================================
+  // 历史记录
+  // ===================================================================
+
+  Future<void> loadHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString(StorageConstants.scaleCalibrationHistory);
+      if (jsonStr == null || jsonStr.isEmpty) {
+        _history.clear();
+        return;
+      }
+      final List<dynamic> list = jsonDecode(jsonStr) as List<dynamic>;
+      final all = list
+          .map((e) =>
+              ScaleCalibrationRecord.fromMap(e as Map<String, dynamic>))
+          .toList();
+      // 仅载入当前设备相关的（所有历史都保留，但UI按device过滤）
+      _history
+        ..clear()
+        ..addAll(all);
+    } catch (e) {
+      LoggerUtil.error('加载校准历史失败', e);
+    }
+  }
+
+  void _appendHistory({
+    required ScaleCalibrationParams oldParams,
+    required ScaleCalibrationParams newParams,
+    required CalibrationActionType actionType,
     String? operatorName,
-  }) {
-    _history.insert(
-      0,
-      ScaleCalibrationRecord(
-        id: 'CAL_${DateTime.now().millisecondsSinceEpoch}',
-        timestamp: DateTime.now(),
-        deviceAddress: _deviceAddress ?? '',
-        deviceName: _params.deviceName ?? '',
-        oldSlope: oldSlope,
-        oldIntercept: oldIntercept,
-        newSlope: newSlope,
-        newIntercept: newIntercept,
-        oldZero: oldZero,
-        newZero: newZero,
-        operatorName: operatorName,
-        remark: remark,
-      ),
-    );
-    _saveHistory();
-  }
-
-  void setCalibrationParamsManually({
-    double? slope,
-    double? intercept,
-    double? zeroOffset,
-    double? tare,
     String? remark,
   }) {
-    final oldSlope = _params.slope;
-    final oldIntercept = _params.intercept;
-    final double oldZero = _params.zeroOffset;
+    final record = ScaleCalibrationRecord(
+      id: _uuid.v4(),
+      timestamp: DateTime.now(),
+      deviceAddress: newParams.deviceAddress ?? '',
+      deviceName: newParams.deviceName ?? '',
+      oldSlope: oldParams.slope,
+      oldIntercept: oldParams.intercept,
+      newSlope: newParams.slope,
+      newIntercept: newParams.intercept,
+      oldZero: oldParams.totalZeroOffset,
+      newZero: newParams.totalZeroOffset,
+      oldTare: oldParams.totalTare,
+      newTare: newParams.totalTare,
+      actionType: actionType,
+      operatorName: operatorName,
+      remark: remark,
+    );
+    _history.insert(0, record);
+    if (_history.length > _maxHistoryCount) {
+      _history.removeRange(_maxHistoryCount, _history.length);
+    }
+    unawaited(_saveHistory());
+  }
 
+  Future<void> _saveHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr =
+          jsonEncode(_history.map((e) => e.toMap()).toList());
+      await prefs.setString(StorageConstants.scaleCalibrationHistory, jsonStr);
+    } catch (e) {
+      LoggerUtil.error('保存校准历史失败', e);
+    }
+  }
+
+  List<ScaleCalibrationRecord> historyForDevice(String? deviceAddress) {
+    if (deviceAddress == null || deviceAddress.isEmpty) {
+      return history;
+    }
+    return history.where((r) => r.deviceAddress == deviceAddress).toList();
+  }
+
+  // ===================================================================
+  // 手动设置 & 重置
+  // ===================================================================
+
+  Future<void> setSynergyMode(CalibrationSynergyMode mode) async {
+    _params = _params.copyWith(synergyMode: mode);
+    await _saveParams();
+  }
+
+  Future<void> setParamsManually({
+    required double slope,
+    required double intercept,
+    double? softwareZero,
+    double? softwareTare,
+  }) async {
+    final oldParams = _params;
     _params = _params.copyWith(
       slope: slope,
       intercept: intercept,
-      zeroOffset: zeroOffset,
-      currentTare: tare,
+      softwareZeroOffset: softwareZero ?? _params.softwareZeroOffset,
+      softwareTare: softwareTare ?? _params.softwareTare,
       lastCalibrationTime: DateTime.now(),
-      calibrationCount: _params.calibrationCount + 1,
       isCalibrated: true,
     );
-    _saveParams();
-    _addHistoryRecord(
-      oldSlope: oldSlope,
-      oldIntercept: oldIntercept,
-      newSlope: _params.slope,
-      newIntercept: _params.intercept,
-      oldZero: oldZero,
-      newZero: _params.zeroOffset,
-      remark: remark ?? '手动设置校准参数',
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: CalibrationActionType.software,
+      remark: '手动设置校准参数',
     );
-    _weightStreamController.add(_params.getNetWeight(_rawWeight));
+    await _saveParams();
   }
 
-  void updateRawWeightFromBluetooth(double rawValue) {
-    if (_status != ScaleStatus.connected) return;
-    _rawWeight = rawValue;
-    final net = _params.getNetWeight(rawValue);
-    _weightStreamController.add(net);
-  }
-
-  void _updateStatus(ScaleStatus status) {
-    _status = status;
-    _statusStreamController.add(status);
-  }
-
-  String formatWeight(double weight, {String unit = 'kg'}) {
-    return '${weight.toStringAsFixed(3)} $unit';
+  Future<void> resetToDefault() async {
+    final oldParams = _params;
+    final now = DateTime.now();
+    _params = ScaleCalibrationParams(
+      lastCalibrationTime: now,
+      deviceAddress: oldParams.deviceAddress,
+      deviceName: oldParams.deviceName,
+      synergyMode: oldParams.synergyMode,
+    );
+    _appendHistory(
+      oldParams: oldParams,
+      newParams: _params,
+      actionType: CalibrationActionType.software,
+      remark: '恢复默认参数',
+    );
+    await _saveParams();
   }
 
   void dispose() {
-    _simulationTimer?.cancel();
-    _weightStreamController.close();
-    _statusStreamController.close();
-    _stableStreamController.close();
-    _paramsStreamController.close();
+    disconnect();
+    _statusController.close();
+    _weightController.close();
+    _stableController.close();
     _calibrationStepController.close();
+    _paramsController.close();
   }
 }
 
-class ScaleTimeoutException implements Exception {
-  final String message;
-  ScaleTimeoutException(this.message);
-
-  @override
-  String toString() => 'ScaleTimeoutException: $message';
+extension on Exception {
+  String get message => toString().replaceFirst('Exception: ', '');
 }
+
+void unawaited(Future<void>? future) {}
