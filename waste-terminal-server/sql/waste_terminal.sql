@@ -951,3 +951,120 @@ CREATE TABLE face_auth_record (
 ALTER TABLE face_auth_record 
 ADD COLUMN IF NOT EXISTS liveness_score DOUBLE COMMENT '活体检测分数(0-1)' AFTER similarity,
 ADD COLUMN IF NOT EXISTS face_quality INT COMMENT '人脸质量分数(0-100)' AFTER liveness_score;
+
+-- =============================================
+-- 25. 电子台账主表
+-- =============================================
+DROP TABLE IF EXISTS waste_ledger;
+CREATE TABLE waste_ledger (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '台账ID',
+    ledger_no VARCHAR(64) NOT NULL COMMENT '台账编号',
+    ledger_type VARCHAR(20) NOT NULL COMMENT '台账类型: MONTHLY-月报 YEARLY-年报',
+    period_year INT NOT NULL COMMENT '统计年份',
+    period_month INT COMMENT '统计月份(月报时有效)',
+    start_date DATE NOT NULL COMMENT '统计开始日期',
+    end_date DATE NOT NULL COMMENT '统计结束日期',
+    enterprise_id BIGINT COMMENT '企业ID',
+    enterprise_name VARCHAR(200) COMMENT '企业名称',
+    enterprise_code VARCHAR(50) COMMENT '企业统一社会信用代码',
+    total_in_count INT DEFAULT 0 COMMENT '本期入库总笔数',
+    total_in_weight DECIMAL(14,4) DEFAULT 0 COMMENT '本期入库总重量(kg)',
+    total_out_count INT DEFAULT 0 COMMENT '本期出库总笔数',
+    total_out_weight DECIMAL(14,4) DEFAULT 0 COMMENT '本期出库总重量(kg)',
+    begin_inventory_weight DECIMAL(14,4) DEFAULT 0 COMMENT '期初库存重量(kg)',
+    end_inventory_weight DECIMAL(14,4) DEFAULT 0 COMMENT '期末库存重量(kg)',
+    file_id BIGINT COMMENT '生成的Excel文件ID',
+    file_url VARCHAR(500) COMMENT 'Excel文件URL',
+    file_name VARCHAR(255) COMMENT 'Excel文件名',
+    generate_status TINYINT DEFAULT 0 COMMENT '生成状态: 0-待生成 1-生成中 2-已生成 3-生成失败',
+    generate_time DATETIME COMMENT '生成时间',
+    generate_fail_reason VARCHAR(500) COMMENT '生成失败原因',
+    report_status TINYINT DEFAULT 0 COMMENT '上报状态: 0-待上报 1-上报中 2-已上报 3-上报失败 4-无需上报',
+    report_time DATETIME COMMENT '上报时间',
+    report_fail_reason VARCHAR(500) COMMENT '上报失败原因',
+    platform_ledger_no VARCHAR(64) COMMENT '省平台返回的台账编号',
+    retry_count INT DEFAULT 0 COMMENT '上报重试次数',
+    operator_id BIGINT COMMENT '操作人ID',
+    operator_name VARCHAR(50) COMMENT '操作人姓名',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_ledger_no (ledger_no),
+    UNIQUE KEY uk_enterprise_period (enterprise_id, ledger_type, period_year, period_month),
+    KEY idx_ledger_type (ledger_type),
+    KEY idx_period (period_year, period_month),
+    KEY idx_generate_status (generate_status),
+    KEY idx_report_status (report_status),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='电子台账主表';
+
+-- =============================================
+-- 26. 电子台账明细表
+-- =============================================
+DROP TABLE IF EXISTS waste_ledger_detail;
+CREATE TABLE waste_ledger_detail (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '明细ID',
+    ledger_id BIGINT NOT NULL COMMENT '台账ID',
+    ledger_no VARCHAR(64) NOT NULL COMMENT '台账编号',
+    detail_type VARCHAR(20) NOT NULL COMMENT '明细类型: IN-入库 OUT-出库 INVENTORY_CHANGE-库存变动',
+    waste_id BIGINT COMMENT '危废名录ID',
+    waste_code VARCHAR(20) COMMENT '危废代码',
+    waste_name VARCHAR(200) COMMENT '危废名称',
+    waste_category VARCHAR(50) COMMENT '废物类别',
+    hazard_code VARCHAR(20) COMMENT '危险特性',
+    container_id BIGINT COMMENT '容器ID',
+    container_code VARCHAR(50) COMMENT '容器编号',
+    record_no VARCHAR(64) COMMENT '业务记录编号(入库单号/出库单号)',
+    weight DECIMAL(12,4) COMMENT '重量(kg)',
+    change_type VARCHAR(30) COMMENT '变动类型: IN-入库 OUT-出库 ADJUST-调整 LOSS-损耗',
+    operate_time DATETIME COMMENT '操作时间',
+    operator_name VARCHAR(50) COMMENT '操作员姓名',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    KEY idx_ledger_id (ledger_id),
+    KEY idx_ledger_no (ledger_no),
+    KEY idx_detail_type (detail_type),
+    KEY idx_waste_code (waste_code),
+    KEY idx_operate_time (operate_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='电子台账明细表';
+
+-- =============================================
+-- 27. 台账上报日志表
+-- =============================================
+DROP TABLE IF EXISTS waste_ledger_report_log;
+CREATE TABLE waste_ledger_report_log (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+    log_no VARCHAR(64) NOT NULL COMMENT '日志编号',
+    ledger_id BIGINT NOT NULL COMMENT '台账ID',
+    ledger_no VARCHAR(64) NOT NULL COMMENT '台账编号',
+    report_type VARCHAR(20) NOT NULL COMMENT '上报类型: AUTO-自动上报 MANUAL-手动上报 RETRY-重试上报',
+    report_status TINYINT NOT NULL COMMENT '上报状态: 1-成功 2-失败',
+    report_time DATETIME NOT NULL COMMENT '上报时间',
+    request_payload TEXT COMMENT '上报请求报文',
+    response_payload TEXT COMMENT '上报响应报文',
+    fail_reason VARCHAR(500) COMMENT '失败原因',
+    platform_ledger_no VARCHAR(64) COMMENT '省平台返回的台账编号',
+    duration_ms BIGINT COMMENT '上报耗时(毫秒)',
+    operator_id BIGINT COMMENT '操作人ID(手动上报时)',
+    operator_name VARCHAR(50) COMMENT '操作人姓名',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_log_no (log_no),
+    KEY idx_ledger_id (ledger_id),
+    KEY idx_ledger_no (ledger_no),
+    KEY idx_report_status (report_status),
+    KEY idx_report_time (report_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='台账上报日志表';
+
+-- =============================================
+-- 初始化台账配置数据
+-- =============================================
+INSERT INTO data_version (data_type, version, version_time, change_summary, record_count, enterprise_id) VALUES
+('WASTE_LEDGER', 1, NOW(), '初始化电子台账模块', 0, NULL);

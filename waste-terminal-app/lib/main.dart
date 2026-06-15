@@ -13,6 +13,7 @@ import 'providers/sync_provider.dart';
 import 'providers/warning_provider.dart';
 import 'providers/waste_in_provider.dart';
 import 'providers/waste_out_provider.dart';
+import 'providers/waste_ledger_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
   final WarningProvider _warningProvider = WarningProvider();
   final WasteInProvider _wasteInProvider = WasteInProvider();
   final WasteOutProvider _wasteOutProvider = WasteOutProvider();
+  final WasteLedgerProvider _wasteLedgerProvider = WasteLedgerProvider();
 
   bool _isInitialized = false;
 
@@ -60,6 +62,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
     await _warningProvider.init();
     await _wasteInProvider.init();
     await _wasteOutProvider.init();
+    await _wasteLedgerProvider.init();
 
     setState(() {
       _isInitialized = true;
@@ -121,6 +124,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
         ChangeNotifierProvider<WarningProvider>.value(value: _warningProvider),
         ChangeNotifierProvider<WasteInProvider>.value(value: _wasteInProvider),
         ChangeNotifierProvider<WasteOutProvider>.value(value: _wasteOutProvider),
+        ChangeNotifierProvider<WasteLedgerProvider>.value(value: _wasteLedgerProvider),
       ],
       child: Consumer<AppProvider>(
         builder: (context, appProvider, child) {

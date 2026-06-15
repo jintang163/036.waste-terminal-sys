@@ -320,6 +320,12 @@ class _HomePageState extends State<HomePage> {
         color: Colors.deepPurple,
         route: AppRoutes.captureEventList,
       ),
+      _ActionItem(
+        icon: Icons.assessment,
+        label: '电子台账',
+        color: Colors.blueAccent,
+        route: AppRoutes.wasteLedger,
+      ),
     ];
 
     return Column(

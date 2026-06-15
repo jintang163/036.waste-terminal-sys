@@ -43,4 +43,12 @@ public class IdGeneratorUtils {
     public static String generateSyncNo() {
         return "TB" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
     }
+
+    public static String generateLedgerNo() {
+        return "TZ" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
+    }
+
+    public static String generateLedgerReportLogNo() {
+        return "RZ" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
+    }
 }

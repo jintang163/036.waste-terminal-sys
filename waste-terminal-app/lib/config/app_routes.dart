@@ -18,6 +18,8 @@ import '../pages/camera_list_page.dart';
 import '../pages/camera_preview_page.dart';
 import '../pages/capture_event_list_page.dart';
 import '../pages/capture_event_detail_page.dart';
+import '../pages/waste_ledger_list_page.dart';
+import '../pages/waste_ledger_detail_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -50,6 +52,8 @@ class AppRoutes {
   static const String cameraPreview = '/camera_preview';
   static const String captureEventList = '/capture_event_list';
   static const String captureEventDetail = '/capture_event_detail';
+  static const String wasteLedger = '/waste_ledger';
+  static const String wasteLedgerDetail = '/waste_ledger_detail';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -79,6 +83,7 @@ class AppRoutes {
         platformReport: (context) => const PlatformReportDashboardPage(),
         cameraList: (context) => const CameraListPage(),
         captureEventList: (context) => const CaptureEventListPage(),
+        wasteLedger: (context) => const WasteLedgerListPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
@@ -117,6 +122,18 @@ class AppRoutes {
         }
         return MaterialPageRoute(
           builder: (context) => CaptureEventDetailPage(eventId: eventId),
+          settings: settings,
+        );
+      case wasteLedgerDetail:
+        final args = settings.arguments;
+        int ledgerId = 0;
+        if (args is int) {
+          ledgerId = args;
+        } else if (args is Map) {
+          ledgerId = args['ledgerId'] as int? ?? 0;
+        }
+        return MaterialPageRoute(
+          builder: (context) => WasteLedgerDetailPage(ledgerId: ledgerId),
           settings: settings,
         );
       default:
