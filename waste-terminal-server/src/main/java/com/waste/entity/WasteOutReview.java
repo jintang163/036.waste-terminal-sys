@@ -12,21 +12,19 @@ import java.time.LocalDateTime;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName("waste_out_record")
-public class WasteOutRecord extends BaseEntity {
+@TableName("waste_out_review")
+public class WasteOutReview extends BaseEntity {
 
     private static final long serialVersionUID = 1L;
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    private String reviewNo;
+
+    private Long outRecordId;
+
     private String outNo;
-
-    private Long transferOrderId;
-
-    private Long containerId;
-
-    private String containerCode;
 
     private Long wasteId;
 
@@ -36,53 +34,31 @@ public class WasteOutRecord extends BaseEntity {
 
     private BigDecimal weight;
 
-    private Long receiverUnitId;
-
-    private String receiverUnitName;
-
-    private Long transporterId;
-
-    private String transporterName;
-
-    private String vehicleNo;
-
-    private String driverName;
-
-    private String driverPhone;
-
-    private LocalDateTime outTime;
+    private String containerCode;
 
     private Long operatorId;
 
     private String operatorName;
 
-    private String remark;
+    private Long reviewerId;
 
-    private Integer status;
+    private String reviewerName;
 
-    private Integer signStatus;
+    private String reviewType;
 
-    private LocalDateTime signTime;
-
-    private String signPhoto;
-
-    private String receiptPhoto;
-
-    private Integer reviewStatus;
+    private Integer reviewResult;
 
     private LocalDateTime reviewTime;
 
     private String reviewRemark;
-
-    private Long reviewerId;
-
-    private String reviewerName;
 
     private String reviewerFaceAuthId;
 
     private String reviewerFaceId;
 
     private String reviewerFaceImage;
+
+    private String reviewQrCode;
 
     private Integer syncStatus;
 
@@ -91,10 +67,4 @@ public class WasteOutRecord extends BaseEntity {
     private String offlineId;
 
     private Long enterpriseId;
-
-    private String faceAuthId;
-
-    private String faceId;
-
-    private String operatorFaceImage;
 }

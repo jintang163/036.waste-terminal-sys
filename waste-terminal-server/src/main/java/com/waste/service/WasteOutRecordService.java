@@ -36,4 +36,6 @@ public interface WasteOutRecordService {
     List<WasteOutRecord> queryList(WasteOutRecord wasteOutRecord, Long enterpriseId);
 
     IPage<WasteOutRecord> queryPage(PageQuery pageQuery, WasteOutRecord wasteOutRecord, Long enterpriseId);
+
+    Map<String, Object> checkDoubleReviewRequired(Long wasteId);
 }

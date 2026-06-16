@@ -24,6 +24,14 @@ class WasteOutRecord {
   final DateTime? signTime;
   final String? signPhoto;
   final String? receiptPhoto;
+  final int? reviewStatus;
+  final DateTime? reviewTime;
+  final String? reviewRemark;
+  final int? reviewerId;
+  final String? reviewerName;
+  final String? reviewerFaceAuthId;
+  final String? reviewerFaceId;
+  final String? reviewerFaceImage;
   final int? syncStatus;
   final DateTime? syncTime;
   final String? offlineId;
@@ -61,6 +69,14 @@ class WasteOutRecord {
     this.signTime,
     this.signPhoto,
     this.receiptPhoto,
+    this.reviewStatus,
+    this.reviewTime,
+    this.reviewRemark,
+    this.reviewerId,
+    this.reviewerName,
+    this.reviewerFaceAuthId,
+    this.reviewerFaceId,
+    this.reviewerFaceImage,
     this.syncStatus,
     this.syncTime,
     this.offlineId,
@@ -104,6 +120,16 @@ class WasteOutRecord {
           : null,
       signPhoto: json['signPhoto'] as String?,
       receiptPhoto: json['receiptPhoto'] as String?,
+      reviewStatus: json['reviewStatus'] as int?,
+      reviewTime: json['reviewTime'] != null
+          ? DateTime.tryParse(json['reviewTime'] as String)
+          : null,
+      reviewRemark: json['reviewRemark'] as String?,
+      reviewerId: json['reviewerId'] as int?,
+      reviewerName: json['reviewerName'] as String?,
+      reviewerFaceAuthId: json['reviewerFaceAuthId'] as String?,
+      reviewerFaceId: json['reviewerFaceId'] as String?,
+      reviewerFaceImage: json['reviewerFaceImage'] as String?,
       syncStatus: json['syncStatus'] as int?,
       syncTime: json['syncTime'] != null
           ? DateTime.tryParse(json['syncTime'] as String)
@@ -150,6 +176,14 @@ class WasteOutRecord {
       'signTime': signTime?.toIso8601String(),
       'signPhoto': signPhoto,
       'receiptPhoto': receiptPhoto,
+      'reviewStatus': reviewStatus,
+      'reviewTime': reviewTime?.toIso8601String(),
+      'reviewRemark': reviewRemark,
+      'reviewerId': reviewerId,
+      'reviewerName': reviewerName,
+      'reviewerFaceAuthId': reviewerFaceAuthId,
+      'reviewerFaceId': reviewerFaceId,
+      'reviewerFaceImage': reviewerFaceImage,
       'syncStatus': syncStatus,
       'syncTime': syncTime?.toIso8601String(),
       'offlineId': offlineId,
@@ -194,6 +228,16 @@ class WasteOutRecord {
           : null,
       signPhoto: map['sign_photo'] as String?,
       receiptPhoto: map['receipt_photo'] as String?,
+      reviewStatus: map['review_status'] as int?,
+      reviewTime: map['review_time'] != null
+          ? DateTime.tryParse(map['review_time'] as String)
+          : null,
+      reviewRemark: map['review_remark'] as String?,
+      reviewerId: map['reviewer_id'] as int?,
+      reviewerName: map['reviewer_name'] as String?,
+      reviewerFaceAuthId: map['reviewer_face_auth_id'] as String?,
+      reviewerFaceId: map['reviewer_face_id'] as String?,
+      reviewerFaceImage: map['reviewer_face_image'] as String?,
       syncStatus: map['sync_status'] as int?,
       syncTime: map['sync_time'] != null
           ? DateTime.tryParse(map['sync_time'] as String)
@@ -240,6 +284,14 @@ class WasteOutRecord {
       'sign_time': signTime?.toIso8601String(),
       'sign_photo': signPhoto,
       'receipt_photo': receiptPhoto,
+      'review_status': reviewStatus,
+      'review_time': reviewTime?.toIso8601String(),
+      'review_remark': reviewRemark,
+      'reviewer_id': reviewerId,
+      'reviewer_name': reviewerName,
+      'reviewer_face_auth_id': reviewerFaceAuthId,
+      'reviewer_face_id': reviewerFaceId,
+      'reviewer_face_image': reviewerFaceImage,
       'sync_status': syncStatus,
       'sync_time': syncTime?.toIso8601String(),
       'offline_id': offlineId,
@@ -279,6 +331,14 @@ class WasteOutRecord {
     DateTime? signTime,
     String? signPhoto,
     String? receiptPhoto,
+    int? reviewStatus,
+    DateTime? reviewTime,
+    String? reviewRemark,
+    int? reviewerId,
+    String? reviewerName,
+    String? reviewerFaceAuthId,
+    String? reviewerFaceId,
+    String? reviewerFaceImage,
     int? syncStatus,
     DateTime? syncTime,
     String? offlineId,
@@ -316,6 +376,14 @@ class WasteOutRecord {
       signTime: signTime ?? this.signTime,
       signPhoto: signPhoto ?? this.signPhoto,
       receiptPhoto: receiptPhoto ?? this.receiptPhoto,
+      reviewStatus: reviewStatus ?? this.reviewStatus,
+      reviewTime: reviewTime ?? this.reviewTime,
+      reviewRemark: reviewRemark ?? this.reviewRemark,
+      reviewerId: reviewerId ?? this.reviewerId,
+      reviewerName: reviewerName ?? this.reviewerName,
+      reviewerFaceAuthId: reviewerFaceAuthId ?? this.reviewerFaceAuthId,
+      reviewerFaceId: reviewerFaceId ?? this.reviewerFaceId,
+      reviewerFaceImage: reviewerFaceImage ?? this.reviewerFaceImage,
       syncStatus: syncStatus ?? this.syncStatus,
       syncTime: syncTime ?? this.syncTime,
       offlineId: offlineId ?? this.offlineId,

@@ -36,7 +36,10 @@ import '../models/camera_model.dart';
 import '../models/transport_vehicle.dart';
 import '../models/transport_driver.dart';
 import '../models/transport_track.dart';
+import '../services/waste_out_review_service.dart';
+import '../models/waste_out_review.dart';
 import 'face_verify_page.dart';
+import 'face_enroll_page.dart';
 import 'track_playback_page.dart';
 
 class WasteOutPage extends StatefulWidget {
@@ -57,6 +60,9 @@ class _WasteOutPageState extends State<WasteOutPage> {
   final _driverSearchController = TextEditingController();
   final _expectedDurationController =
       TextEditingController(text: '24');
+  final _vehicleNoController = TextEditingController();
+  final _driverNameController = TextEditingController();
+  final _driverPhoneController = TextEditingController();
   double _expectedDurationHours = 24.0;
 
   final Logger _logger = Logger();
@@ -92,6 +98,15 @@ class _WasteOutPageState extends State<WasteOutPage> {
   List<CameraModel> _cameraList = [];
   bool _isRecording = false;
 
+  final WasteOutReviewService _reviewService = WasteOutReviewService();
+  bool _doubleReviewRequired = false;
+  List<String> _doubleReviewReasons = [];
+  bool _isCheckingReview = false;
+  final _reviewRemarkController = TextEditingController();
+  WasteOutReview? _currentReview;
+  String? _currentReviewNo;
+  bool _isRefreshingReview = false;
+
   @override
   void initState() {
     super.initState();
@@ -110,6 +125,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
     _vehicleSearchController.dispose();
     _driverSearchController.dispose();
     _expectedDurationController.dispose();
+    _reviewRemarkController.dispose();
+    _vehicleNoController.dispose();
+    _driverNameController.dispose();
+    _driverPhoneController.dispose();
     _videoPlayerService.disconnect();
     super.dispose();
   }
@@ -334,6 +353,59 @@ class _WasteOutPageState extends State<WasteOutPage> {
     }
   }
 
+  Future<void> _scanForReview() async {
+    try {
+      final result = await Navigator.pushNamed(context, AppRoutes.scan);
+      if (result != null && result is String && result.isNotEmpty) {
+        String reviewNo = result;
+        if (result.contains('wastereview://')) {
+          final uri = Uri.parse(result);
+          reviewNo = uri.host;
+        }
+        await _loadReviewForConfirm(reviewNo);
+      }
+    } catch (e) {
+      ToastUtil.showError('扫码失败');
+    }
+  }
+
+  Future<void> _loadReviewForConfirm(String reviewNo) async {
+    setState(() => _isLoading = true);
+    try {
+      final review = await _reviewService.getByReviewNo(reviewNo);
+      if (review == null) {
+        ToastUtil.showError('未找到该复核记录');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final appProvider = context.read<AppProvider>();
+      final currentUserId = appProvider.userInfo?['id'];
+      if (review.operatorId == currentUserId) {
+        ToastUtil.showError('操作员不能复核自己创建的出库单');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      if (review.reviewResult != null) {
+        ToastUtil.showInfo('该复核已处理');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      setState(() {
+        _currentReview = review;
+        _currentReviewNo = reviewNo;
+        _isLoading = false;
+      });
+
+      _showReviewConfirmDialog(review);
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ToastUtil.showError('加载复核记录失败: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
   Future<void> _loadInventoryByContainerCode(String code) async {
     setState(() => _isLoading = true);
     try {
@@ -353,6 +425,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
           setState(() {
             _currentInventory = null;
             _weightController.clear();
+            _doubleReviewRequired = false;
+            _doubleReviewReasons.clear();
             _isLoading = false;
           });
           return;
@@ -366,6 +440,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
               (inventory.weight ?? 0).toStringAsFixed(AppConfig.weightDecimalPlaces);
           _isLoading = false;
         });
+        await _checkDoubleReview(inventory.wasteId);
       } else {
         final inventory = WasteInventory.fromJson(results.first);
         setState(() {
@@ -374,11 +449,45 @@ class _WasteOutPageState extends State<WasteOutPage> {
               (inventory.weight ?? 0).toStringAsFixed(AppConfig.weightDecimalPlaces);
           _isLoading = false;
         });
+        await _checkDoubleReview(inventory.wasteId);
       }
       ToastUtil.showSuccess('容器信息加载成功');
     } catch (e) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _doubleReviewRequired = false;
+        _doubleReviewReasons.clear();
+      });
       ToastUtil.showError('加载库存信息失败');
+    }
+  }
+
+  Future<void> _checkDoubleReview(int? wasteId) async {
+    if (wasteId == null) {
+      setState(() {
+        _doubleReviewRequired = false;
+        _doubleReviewReasons.clear();
+      });
+      return;
+    }
+
+    setState(() => _isCheckingReview = true);
+    try {
+      final result = await WasteOutService().checkDoubleReviewRequired(wasteId);
+      setState(() {
+        _doubleReviewRequired = result['required'] as bool? ?? false;
+        _doubleReviewReasons = List<String>.from(result['reasons'] as List? ?? []);
+      });
+    } catch (e) {
+      _logger.w('检查双人复核状态失败: $e');
+      setState(() {
+        _doubleReviewRequired = false;
+        _doubleReviewReasons.clear();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingReview = false);
+      }
     }
   }
 
@@ -518,9 +627,15 @@ class _WasteOutPageState extends State<WasteOutPage> {
       final orderOfflineId = UuidUtil.generateOfflineId('TO');
       final now = DateTime.now();
 
-      final vehicleNo = _selectedVehicle?.vehicleNo ?? '';
-      final driverName = _selectedDriver?.driverName ?? '';
-      final driverPhone = _selectedDriver?.phone ?? '';
+      final vehicleNo = _vehicleList.isNotEmpty
+          ? (_selectedVehicle?.vehicleNo ?? '')
+          : _vehicleNoController.text.trim();
+      final driverName = _driverList.isNotEmpty
+          ? (_selectedDriver?.driverName ?? '')
+          : _driverNameController.text.trim();
+      final driverPhone = _driverList.isNotEmpty
+          ? (_selectedDriver?.phone ?? '')
+          : _driverPhoneController.text.trim();
 
       final wasteOutRecord = WasteOutRecord(
         outNo: outNo,
@@ -589,7 +704,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
       );
 
       final wasteOutService = WasteOutService();
-      await wasteOutService.addWasteOutRecord(wasteOutRecord.toDbMap());
+      final savedRecord = await wasteOutService.addWasteOutRecord(wasteOutRecord.toDbMap());
 
       final transferOrderService = TransferOrderService();
       await transferOrderService.createTransferOrder(transferOrder.toJson());
@@ -637,10 +752,57 @@ class _WasteOutPageState extends State<WasteOutPage> {
         _triggerOperationRecord(outNo);
       }
 
+      if (_doubleReviewRequired) {
+        final reviewResult = await _createReviewRecord(
+          outRecordId: savedRecord['id'] as int,
+          outNo: outNo,
+          wasteCode: _currentInventory!.wasteCode ?? '',
+          wasteName: _currentInventory!.wasteName ?? '',
+          wasteId: _currentInventory!.wasteId ?? 0,
+        );
+        if (reviewResult != null) {
+          _showReviewQrDialog(
+            reviewNo: reviewResult['reviewNo'] as String,
+            outNo: outNo,
+            qrContent: reviewResult['reviewQrCode'] as String,
+            wasteCode: _currentInventory!.wasteCode ?? '',
+            wasteName: _currentInventory!.wasteName ?? '',
+            operatorName: appProvider.username ?? '',
+            reviewId: reviewResult['id'] as int,
+          );
+          return;
+        }
+      }
+
       _showResultDialog(transferOrder);
     } catch (e) {
       setState(() => _isSaving = false);
       ToastUtil.showError('保存失败: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
+  Future<Map<String, dynamic>?> _createReviewRecord({
+    required int outRecordId,
+    required String outNo,
+    required String wasteCode,
+    required String wasteName,
+    required int wasteId,
+  }) async {
+    try {
+      final reviewNo = 'WR${DateTime.now().millisecondsSinceEpoch}';
+      final qrContent = 'wastereview://$reviewNo?outNo=$outNo&wasteId=$wasteId';
+
+      final result = await _reviewService.createReview(
+        outRecordId: outRecordId,
+        outNo: outNo,
+        reviewQrCode: qrContent,
+      );
+
+      return result;
+    } catch (e) {
+      _logger.e('创建复核记录失败: $e');
+      ToastUtil.showError('创建复核记录失败: ${e.toString().replaceAll('Exception: ', '')}');
+      return null;
     }
   }
 
@@ -689,6 +851,407 @@ class _WasteOutPageState extends State<WasteOutPage> {
     }
 
     return trackNo;
+  }
+
+  void _showReviewQrDialog({
+    required String reviewNo,
+    required String outNo,
+    required String qrContent,
+    required String wasteCode,
+    required String wasteName,
+    required String operatorName,
+    required int reviewId,
+  }) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: Column(
+              children: [
+                Icon(
+                  Icons.qr_code_scanner,
+                  size: 32.r,
+                  color: AppTheme.primaryColor,
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  '请通知复核员扫码确认',
+                  style: AppTextStyle.title,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(12.r),
+                    decoration: BoxDecoration(
+                      color: AppTheme.bgSecondary,
+                      borderRadius: BorderRadius.circular(AppRadius.r8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInfoRow('危废代码', wasteCode),
+                        SizedBox(height: 8.h),
+                        _buildInfoRow('危废名称', wasteName),
+                        SizedBox(height: 8.h),
+                        _buildInfoRow('出库单号', outNo),
+                        SizedBox(height: 8.h),
+                        _buildInfoRow('复核单号', reviewNo),
+                        SizedBox(height: 8.h),
+                        _buildInfoRow('操作员', operatorName),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 16.h),
+                  Container(
+                    padding: EdgeInsets.all(12.r),
+                    decoration: BoxDecoration(
+                      color: AppTheme.bgPrimary,
+                      borderRadius: BorderRadius.circular(AppRadius.r8),
+                    ),
+                    child: QrImageView(
+                      data: qrContent,
+                      size: 200,
+                      version: QrVersions.auto,
+                      errorCorrectionLevel: QrErrorCorrectLevel.M,
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+                  Consumer<AppProvider>(
+                    builder: (context, provider, child) {
+                      if (!provider.isOnline) {
+                        return Container(
+                          padding: EdgeInsets.all(12.r),
+                          decoration: BoxDecoration(
+                            color: AppTheme.warningColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(AppRadius.r8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.wifi_off, size: 16.r, color: AppTheme.warningColor),
+                              SizedBox(width: 8.w),
+                              Expanded(
+                                child: Text(
+                                  '离线模式，复核记录将在联网后同步',
+                                  style: AppTextStyle.caption.copyWith(color: AppTheme.warningColor),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(12.r),
+                            decoration: BoxDecoration(
+                              color: AppTheme.infoColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(AppRadius.r8),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 16.r,
+                                  height: 16.r,
+                                  child: _isRefreshingReview
+                                      ? CircularProgressIndicator(
+                                          strokeWidth: 2.r,
+                                          color: AppTheme.infoColor,
+                                        )
+                                      : Icon(Icons.info, size: 16.r, color: AppTheme.infoColor),
+                                ),
+                                SizedBox(width: 8.w),
+                                Expanded(
+                                  child: Text(
+                                    '等待复核员扫码...',
+                                    style: AppTextStyle.caption.copyWith(color: AppTheme.infoColor),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 8.h),
+                          TextButton.icon(
+                            onPressed: _isRefreshingReview
+                                ? null
+                                : () async {
+                                    setDialogState(() => _isRefreshingReview = true);
+                                    try {
+                                      final updatedReview = await _reviewService.getByReviewNo(reviewNo);
+                                      if (updatedReview != null && updatedReview.reviewResult != null) {
+                                        Navigator.pop(dialogContext);
+                                        _showReviewResultDialog(
+                                          reviewResult: updatedReview.reviewResult!,
+                                          reviewRemark: updatedReview.reviewRemark,
+                                          reviewerName: updatedReview.reviewerName,
+                                          reviewTime: updatedReview.reviewTime,
+                                        );
+                                        await WasteOutService().updateReviewStatus(
+                                          outNo: outNo,
+                                          reviewStatus: updatedReview.reviewResult == 1 ? 2 : 3,
+                                          reviewRemark: updatedReview.reviewRemark,
+                                          reviewerName: updatedReview.reviewerName,
+                                        );
+                                      } else {
+                                        ToastUtil.showInfo('暂无复核结果，请稍后再试');
+                                      }
+                                    } catch (e) {
+                                      ToastUtil.showError('刷新复核状态失败');
+                                    } finally {
+                                      if (mounted) {
+                                        setDialogState(() => _isRefreshingReview = false);
+                                      }
+                                    }
+                                  },
+                            icon: Icon(Icons.refresh, size: 16.r),
+                            label: Text('刷新状态', style: AppTextStyle.caption),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              CommonButton(
+                text: '完成',
+                type: ButtonType.primary,
+                size: ButtonSize.small,
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _resetForm();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showReviewResultDialog({
+    required int reviewResult,
+    String? reviewRemark,
+    String? reviewerName,
+    DateTime? reviewTime,
+  }) {
+    final isPassed = reviewResult == 1;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Column(
+          children: [
+            Icon(
+              isPassed ? Icons.check_circle : Icons.cancel,
+              size: 48.r,
+              color: isPassed ? AppTheme.successColor : AppTheme.dangerColor,
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              isPassed ? '复核通过' : '复核拒绝',
+              style: AppTextStyle.title.copyWith(
+                color: isPassed ? AppTheme.successColor : AppTheme.dangerColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (reviewerName != null) ...[
+                _buildInfoRow('复核人', reviewerName),
+                SizedBox(height: 8.h),
+              ],
+              if (reviewTime != null) ...[
+                _buildInfoRow('复核时间', DateUtil.formatDateTime(reviewTime)),
+                SizedBox(height: 8.h),
+              ],
+              if (reviewRemark != null && reviewRemark.isNotEmpty) ...[
+                _buildInfoRow('复核备注', reviewRemark),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          CommonButton(
+            text: '确定',
+            type: ButtonType.primary,
+            size: ButtonSize.small,
+            onPressed: () {
+              Navigator.pop(dialogContext);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReviewConfirmDialog(WasteOutReview review) {
+    _reviewRemarkController.clear();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Column(
+          children: [
+            Icon(
+              Icons.verified_user,
+              size: 32.r,
+              color: AppTheme.primaryColor,
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              '复核确认',
+              style: AppTextStyle.title,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.all(12.r),
+                decoration: BoxDecoration(
+                  color: AppTheme.bgSecondary,
+                  borderRadius: BorderRadius.circular(AppRadius.r8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildInfoRow('危废代码', review.wasteCode ?? '-'),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('危废名称', review.wasteName ?? '-'),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('重量', '${(review.weight ?? 0).toStringAsFixed(AppConfig.weightDecimalPlaces)} kg'),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('容器编码', review.containerCode ?? '-'),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('出库单号', review.outNo ?? '-'),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('复核单号', review.reviewNo),
+                    SizedBox(height: 8.h),
+                    _buildInfoRow('操作员', review.operatorName ?? '-'),
+                  ],
+                ),
+              ),
+              SizedBox(height: 16.h),
+              Text('复核备注', style: AppTextStyle.subtitle),
+              SizedBox(height: 8.h),
+              TextFormField(
+                controller: _reviewRemarkController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: '请输入复核备注（选填）',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8.r),
+                  ),
+                ),
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(200),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: CommonButton(
+                  text: '拒绝',
+                  type: ButtonType.primary,
+                  size: ButtonSize.medium,
+                  backgroundColor: AppTheme.dangerColor,
+                  onPressed: () => _handleReviewConfirm(dialogContext, review, 2),
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: CommonButton(
+                  text: '通过',
+                  type: ButtonType.primary,
+                  size: ButtonSize.medium,
+                  backgroundColor: AppTheme.successColor,
+                  onPressed: () => _handleReviewConfirm(dialogContext, review, 1),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleReviewConfirm(
+    BuildContext dialogContext,
+    WasteOutReview review,
+    int reviewResult,
+  ) async {
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+    try {
+      final appProvider = context.read<AppProvider>();
+      final result = await _reviewService.confirmReview(
+        reviewNo: review.reviewNo,
+        reviewResult: reviewResult,
+        reviewerName: appProvider.username ?? '',
+        reviewRemark: _reviewRemarkController.text.trim().isEmpty
+            ? null
+            : _reviewRemarkController.text.trim(),
+      );
+
+      if (result['success'] == true) {
+        if (review.outNo != null) {
+          await WasteOutService().updateReviewStatus(
+            outNo: review.outNo!,
+            reviewStatus: reviewResult == 1 ? 2 : 3,
+            reviewRemark: _reviewRemarkController.text.trim().isEmpty
+                ? null
+                : _reviewRemarkController.text.trim(),
+            reviewerName: appProvider.username,
+          );
+        }
+
+        Navigator.pop(dialogContext);
+
+        _showReviewResultDialog(
+          reviewResult: reviewResult,
+          reviewRemark: _reviewRemarkController.text.trim().isEmpty
+              ? null
+              : _reviewRemarkController.text.trim(),
+          reviewerName: appProvider.username,
+          reviewTime: DateTime.now(),
+        );
+
+        setState(() {
+          _currentReview = null;
+          _currentReviewNo = null;
+        });
+      } else {
+        ToastUtil.showError(result['message'] ?? '复核失败');
+      }
+    } catch (e) {
+      ToastUtil.showError('复核失败: ${e.toString().replaceAll('Exception: ', '')}');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   void _showResultDialog(TransferOrder order) {
@@ -807,6 +1370,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
     _transporterSearchController.clear();
     _vehicleSearchController.clear();
     _driverSearchController.clear();
+    _reviewRemarkController.clear();
+    _vehicleNoController.clear();
+    _driverNameController.clear();
+    _driverPhoneController.clear();
     setState(() {
       _currentInventory = null;
       _selectedReceiver = null;
@@ -816,6 +1383,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
       _generatedOrderNo = null;
       _generatedOutNo = null;
       _generatedTrackNo = null;
+      _doubleReviewRequired = false;
+      _doubleReviewReasons.clear();
+      _currentReview = null;
+      _currentReviewNo = null;
     });
   }
 
@@ -825,6 +1396,11 @@ class _WasteOutPageState extends State<WasteOutPage> {
       appBar: AppBar(
         title: const Text('危废出库'),
         actions: [
+          IconButton(
+            icon: Icon(Icons.qr_code_scanner, size: 24.r),
+            onPressed: _scanForReview,
+            tooltip: '扫码复核',
+          ),
           Consumer<AppProvider>(
             builder: (context, provider, child) {
               if (!provider.isOnline) {
@@ -862,6 +1438,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
                     SizedBox(height: 16.h),
                     if (_currentInventory != null) ...[
                       _buildContainerInfoSection(),
+                      SizedBox(height: 16.h),
+                      _buildDoubleReviewWarning(),
                       SizedBox(height: 16.h),
                     ],
                     _buildReceiverSection(),
@@ -919,6 +1497,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
                           setState(() {
                             _currentInventory = null;
                             _weightController.clear();
+                            _doubleReviewRequired = false;
+                            _doubleReviewReasons.clear();
                           });
                         },
                       ),
@@ -1158,6 +1738,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
                   )),
             ] else ...[
               TextFormField(
+                controller: _vehicleNoController,
                 decoration: InputDecoration(
                   labelText: '车牌号',
                   hintText: '请输入车牌号',
@@ -1231,6 +1812,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
                 children: [
                   Expanded(
                     child: TextFormField(
+                      controller: _driverNameController,
                       decoration: InputDecoration(
                         labelText: '司机姓名',
                         hintText: '请输入司机姓名',
@@ -1248,6 +1830,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
                   SizedBox(width: 12.w),
                   Expanded(
                     child: TextFormField(
+                      controller: _driverPhoneController,
                       decoration: InputDecoration(
                         labelText: '司机电话',
                         hintText: '请输入司机电话',
@@ -1560,6 +2143,78 @@ class _WasteOutPageState extends State<WasteOutPage> {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDoubleReviewWarning() {
+    if (_isCheckingReview) {
+      return Card(
+        color: AppTheme.infoColor.withOpacity(0.05),
+        child: Padding(
+          padding: AppPadding.cardContent,
+          child: Row(
+            children: [
+              SizedBox(
+                width: 20.r,
+                height: 20.r,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.r,
+                  color: AppTheme.infoColor,
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Text('正在检查复核要求...', style: AppTextStyle.body),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_doubleReviewRequired) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      color: AppTheme.warningColor.withOpacity(0.1),
+      child: Padding(
+        padding: AppPadding.cardContent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: AppSize.iconMedium, color: AppTheme.warningColor),
+                SizedBox(width: 8.w),
+                Text('需要双人复核', style: AppTextStyle.subtitle.copyWith(color: AppTheme.warningColor)),
+              ],
+            ),
+            SizedBox(height: 12.h),
+            Text('该危废需要双人复核，提交后将生成复核二维码，', style: AppTextStyle.body),
+            SizedBox(height: 4.h),
+            Text('请通知复核员扫码确认。', style: AppTextStyle.body),
+            if (_doubleReviewReasons.isNotEmpty) ...[
+              SizedBox(height: 8.h),
+              Wrap(
+                spacing: 8.w,
+                runSpacing: 8.h,
+                children: _doubleReviewReasons
+                    .map((reason) => Container(
+                          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                          decoration: BoxDecoration(
+                            color: AppTheme.warningColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4.r),
+                          ),
+                          child: Text(
+                            reason,
+                            style: AppTextStyle.caption.copyWith(color: AppTheme.warningColor),
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ],
           ],
         ),
       ),

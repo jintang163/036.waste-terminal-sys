@@ -591,6 +591,17 @@ class ApiConstants {
   static const String wasteOutPage = '/waste-out/page';
   static const String wasteOutUpdate = '/waste-out/update';
   static const String wasteOutDelete = '/waste-out/delete';
+  static const String wasteOutCheckDoubleReview = '/waste-out/check-double-review';
+
+  /// 出库复核管理
+  static const String wasteOutReviewCreate = '/waste-out-review/create';
+  static const String wasteOutReviewConfirm = '/waste-out-review/confirm';
+  static const String wasteOutReviewGetByNo = '/waste-out-review/get-by-review-no';
+  static const String wasteOutReviewGetByOutNo = '/waste-out-review/get-by-out-no';
+  static const String wasteOutReviewList = '/waste-out-review/list';
+  static const String wasteOutReviewPage = '/waste-out-review/page';
+  static const String wasteOutReviewBatchSync = '/waste-out-review/batch-sync';
+  static const String wasteOutReviewPendingSync = '/waste-out-review/pending-sync';
 
   /// 联单管理
   static const String transferOrderList = '/transfer-order/list';

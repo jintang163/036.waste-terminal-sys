@@ -38,4 +38,10 @@ public class WasteCatalog extends BaseEntity {
     private Integer sortOrder;
 
     private Integer status;
+
+    private Integer isHighValue;
+
+    private Integer isHighToxic;
+
+    private Integer requireDoubleReview;
 }

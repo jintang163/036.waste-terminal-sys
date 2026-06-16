@@ -264,6 +264,23 @@ class WasteOutRecordDb {
     }
   }
 
+  Future<int> updateByOutNo(String outNo, Map<String, dynamic> record) async {
+    try {
+      final db = await _dbHelper.database;
+      int count = await db.update(
+        DatabaseTables.tableWasteOutRecord,
+        record,
+        where: 'out_no = ?',
+        whereArgs: [outNo],
+      );
+      _logger.d('根据出库单号更新记录成功，影响行数: $count');
+      return count;
+    } catch (e) {
+      _logger.e('根据出库单号更新记录失败: $e');
+      rethrow;
+    }
+  }
+
   Future<int> deleteByOfflineId(String offlineId) async {
     try {
       final db = await _dbHelper.database;

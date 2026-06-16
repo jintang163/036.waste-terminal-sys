@@ -303,4 +303,55 @@ class WasteOutService {
       };
     }
   }
+
+  Future<Map<String, dynamic>> checkDoubleReviewRequired(int wasteId) async {
+    final result = <String, dynamic>{
+      'required': false,
+      'reasons': <String>[],
+    };
+
+    final hasNetwork = await _apiService.isNetworkAvailable();
+    if (hasNetwork) {
+      try {
+        final response = await _apiService.get(
+          ApiConstants.wasteOutCheckDoubleReview,
+          queryParameters: {'wasteId': wasteId},
+        );
+        if (response != null && response['code'] == 200) {
+          final data = Map<String, dynamic>.from(response['data'] as Map? ?? {});
+          result['required'] = data['required'] as bool? ?? false;
+          result['reasons'] = List<String>.from(data['reasons'] as List? ?? []);
+          return result;
+        }
+      } catch (e) {
+        _logger.w('检查是否需要双人复核失败: $e');
+      }
+    }
+
+    return result;
+  }
+
+  Future<int> updateReviewStatus({
+    required String outNo,
+    required int reviewStatus,
+    String? reviewRemark,
+    int? reviewerId,
+    String? reviewerName,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'review_status': reviewStatus,
+        'review_time': DateTime.now().toIso8601String(),
+        'review_remark': reviewRemark,
+        'reviewer_id': reviewerId,
+        'reviewer_name': reviewerName,
+        'sync_status': 0,
+        'update_time': DateTime.now().toIso8601String(),
+      };
+      return await _wasteOutRecordDb.updateByOutNo(outNo, updateData);
+    } catch (e) {
+      _logger.e('更新出库记录复核状态失败: $e');
+      return 0;
+    }
+  }
 }

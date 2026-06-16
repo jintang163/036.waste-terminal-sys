@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 6;
+  static const int dbVersion = 7;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -23,6 +23,7 @@ class DatabaseTables {
   static const String tableTransportDriver = 'transport_driver';
   static const String tableTransportTrack = 'transport_track';
   static const String tableTransportTrackPoint = 'transport_track_point';
+  static const String tableWasteOutReview = 'waste_out_review';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (
@@ -438,6 +439,39 @@ class DatabaseTables {
     )
   ''';
 
+  static const String createTableWasteOutReview = '''
+    CREATE TABLE $tableWasteOutReview (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      review_no TEXT,
+      out_record_id INTEGER,
+      out_no TEXT,
+      waste_id INTEGER,
+      waste_code TEXT,
+      waste_name TEXT,
+      weight REAL,
+      container_code TEXT,
+      operator_id INTEGER,
+      operator_name TEXT,
+      reviewer_id INTEGER,
+      reviewer_name TEXT,
+      review_type TEXT,
+      review_result INTEGER,
+      review_time TEXT,
+      review_remark TEXT,
+      reviewer_face_auth_id TEXT,
+      reviewer_face_id TEXT,
+      reviewer_face_image TEXT,
+      review_qr_code TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      offline_id TEXT,
+      enterprise_id INTEGER,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
   static List<String> getAllCreateTableSql() {
     return [
       createTableWasteCatalog,
@@ -459,6 +493,7 @@ class DatabaseTables {
       createTableTransportDriver,
       createTableTransportTrack,
       createTableTransportTrackPoint,
+      createTableWasteOutReview,
     ];
   }
 }

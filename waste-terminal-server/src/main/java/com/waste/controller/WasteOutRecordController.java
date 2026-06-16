@@ -181,4 +181,11 @@ public class WasteOutRecordController {
         List<WasteOutRecord> list = wasteOutRecordService.getPendingSyncList(enterpriseId);
         return Result.success(list);
     }
+
+    @GetMapping("/check-double-review")
+    @RequiresLogin
+    public Result<Map<String, Object>> checkDoubleReviewRequired(@RequestParam Long wasteId) {
+        Map<String, Object> result = wasteOutRecordService.checkDoubleReviewRequired(wasteId);
+        return Result.success(result);
+    }
 }

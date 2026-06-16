@@ -503,4 +503,42 @@ public class WasteOutRecordServiceImpl implements WasteOutRecordService {
         }
         return wrapper;
     }
+
+    @Override
+    public Map<String, Object> checkDoubleReviewRequired(Long wasteId) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        if (wasteId == null) {
+            result.put("required", false);
+            return result;
+        }
+
+        WasteCatalog catalog = wasteCatalogMapper.selectById(wasteId);
+        if (catalog == null) {
+            result.put("required", false);
+            return result;
+        }
+
+        boolean required = false;
+        List<String> reasons = new ArrayList<>();
+
+        if (catalog.getIsHighValue() != null && catalog.getIsHighValue() == 1) {
+            required = true;
+            reasons.add("高价值危废");
+        }
+        if (catalog.getIsHighToxic() != null && catalog.getIsHighToxic() == 1) {
+            required = true;
+            reasons.add("高毒性危废");
+        }
+        if (catalog.getRequireDoubleReview() != null && catalog.getRequireDoubleReview() == 1) {
+            required = true;
+            reasons.add("配置要求双人复核");
+        }
+
+        result.put("required", required);
+        result.put("isHighValue", catalog.getIsHighValue() != null && catalog.getIsHighValue() == 1);
+        result.put("isHighToxic", catalog.getIsHighToxic() != null && catalog.getIsHighToxic() == 1);
+        result.put("reasons", reasons);
+
+        return result;
+    }
 }

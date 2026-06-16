@@ -105,6 +105,52 @@ class DatabaseHelper {
       await batch.commit(noResult: true);
       _logger.i('数据库升级到v6完成，已添加运输预计到达时长字段');
     }
+    if (oldVersion < 7) {
+      Batch batch = db.batch();
+      batch.execute(DatabaseTables.createTableWasteOutReview);
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN review_status INTEGER DEFAULT 0');
+      } catch (e) {
+        _logger.w('添加列 review_status 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN review_time TEXT');
+      } catch (e) {
+        _logger.w('添加列 review_time 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN review_remark TEXT');
+      } catch (e) {
+        _logger.w('添加列 review_remark 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN reviewer_id INTEGER');
+      } catch (e) {
+        _logger.w('添加列 reviewer_id 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN reviewer_name TEXT');
+      } catch (e) {
+        _logger.w('添加列 reviewer_name 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN reviewer_face_auth_id TEXT');
+      } catch (e) {
+        _logger.w('添加列 reviewer_face_auth_id 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN reviewer_face_id TEXT');
+      } catch (e) {
+        _logger.w('添加列 reviewer_face_id 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN reviewer_face_image TEXT');
+      } catch (e) {
+        _logger.w('添加列 reviewer_face_image 失败(可能已存在): $e');
+      }
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v7完成，已添加出库双人复核相关表和字段');
+    }
   }
 
   Future<void> _onDowngrade(Database db, int oldVersion, int newVersion) async {
