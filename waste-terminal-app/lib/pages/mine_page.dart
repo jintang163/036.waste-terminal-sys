@@ -203,9 +203,8 @@ class _MinePageState extends State<MinePage> {
             icon: Icons.bluetooth,
             iconColor: Colors.blue,
             title: '设备管理',
-            onTap: () {
-              ToastUtil.showShort('功能开发中');
-            },
+            subtitle: '设备状态自检、蓝牙连接、运维日志',
+            onTap: () => Navigator.pushNamed(context, AppRoutes.deviceStatus),
           ),
           Divider(height: 1.h, indent: 56.w, endIndent: 16.w),
           _buildMenuItem(

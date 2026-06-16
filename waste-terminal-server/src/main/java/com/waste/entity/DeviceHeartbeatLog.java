@@ -14,45 +14,29 @@ import java.util.Map;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName(value = "device_info", autoResultMap = true)
-public class DeviceInfo extends BaseEntity {
+@TableName(value = "device_heartbeat_log", autoResultMap = true)
+public class DeviceHeartbeatLog extends BaseEntity {
 
     private static final long serialVersionUID = 1L;
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String deviceNo;
+    private String deviceId;
 
     private String deviceName;
 
-    private String deviceType;
-
     private String deviceModel;
-
-    private String manufacturer;
-
-    private String brand;
 
     private String platform;
 
     private String osVersion;
 
-    private String sdkVersion;
+    private Long userId;
 
-    private String connectType;
+    private String username;
 
-    private String macAddress;
-
-    private String serialPort;
-
-    private Integer baudRate;
-
-    private Integer status;
-
-    private LocalDateTime lastConnectTime;
-
-    private LocalDateTime lastHeartbeatTime;
+    private Long enterpriseId;
 
     private String networkType;
 
@@ -68,11 +52,5 @@ public class DeviceInfo extends BaseEntity {
 
     private String buildNumber;
 
-    private Long currentUserId;
-
-    private String currentUsername;
-
-    private Long enterpriseId;
-
-    private String remark;
+    private LocalDateTime heartbeatTime;
 }

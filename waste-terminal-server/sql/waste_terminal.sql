@@ -1313,3 +1313,89 @@ INSERT INTO transport_driver (driver_name, gender, phone, id_card, driver_licens
 -- =============================================
 -- ALTER TABLE transport_track ADD COLUMN expected_duration_hours DECIMAL(8,2) DEFAULT 24.00 COMMENT '预计到达时长(小时)';
 -- ALTER TABLE transport_track ADD COLUMN expected_arrival_time DATETIME COMMENT '预计到达时间';
+
+-- =============================================
+-- 33. 设备心跳日志表
+-- =============================================
+DROP TABLE IF EXISTS device_heartbeat_log;
+CREATE TABLE device_heartbeat_log (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    device_id VARCHAR(64) COMMENT '设备ID',
+    device_name VARCHAR(100) COMMENT '设备名称',
+    device_model VARCHAR(50) COMMENT '设备型号',
+    platform VARCHAR(20) COMMENT '平台: Android/iOS',
+    os_version VARCHAR(50) COMMENT '系统版本',
+    user_id BIGINT COMMENT '用户ID',
+    username VARCHAR(50) COMMENT '用户名',
+    enterprise_id BIGINT COMMENT '企业ID',
+    network_type VARCHAR(20) COMMENT '网络类型: wifi/4G/5G/none',
+    battery_level INT COMMENT '电量百分比(0-100)',
+    storage_info JSON COMMENT '存储信息(JSON): {total, free, usagePercent}',
+    bluetooth_info JSON COMMENT '蓝牙信息(JSON): {available, enabled, connected}',
+    app_version VARCHAR(20) COMMENT 'APP版本号',
+    build_number VARCHAR(20) COMMENT '构建号',
+    heartbeat_time DATETIME COMMENT '心跳时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    KEY idx_device_id (device_id),
+    KEY idx_heartbeat_time (heartbeat_time),
+    KEY idx_enterprise_id (enterprise_id),
+    KEY idx_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备心跳日志表';
+
+-- =============================================
+-- 34. 运维日志表
+-- =============================================
+DROP TABLE IF EXISTS operation_log;
+CREATE TABLE operation_log (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    log_id VARCHAR(64) COMMENT '日志ID(客户端生成)',
+    device_id VARCHAR(64) COMMENT '设备ID',
+    device_name VARCHAR(100) COMMENT '设备名称',
+    user_id BIGINT COMMENT '用户ID',
+    username VARCHAR(50) COMMENT '用户名',
+    enterprise_id BIGINT COMMENT '企业ID',
+    level VARCHAR(20) NOT NULL DEFAULT 'info' COMMENT '日志级别: debug/info/warning/error',
+    category VARCHAR(50) COMMENT '日志分类: auth/device/waste/inventory/transport/sync/system',
+    module VARCHAR(50) COMMENT '功能模块',
+    action VARCHAR(50) COMMENT '操作动作',
+    message TEXT COMMENT '日志消息',
+    extra JSON COMMENT '扩展信息(JSON)',
+    is_offline TINYINT DEFAULT 0 COMMENT '是否离线操作: 0-否 1-是',
+    sync_status TINYINT DEFAULT 2 COMMENT '同步状态: 0-待同步 1-同步中 2-已同步 3-同步失败',
+    operation_time DATETIME COMMENT '操作时间',
+    upload_time DATETIME COMMENT '上传时间',
+    ip_address VARCHAR(50) COMMENT 'IP地址',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_log_id (log_id),
+    KEY idx_device_id (device_id),
+    KEY idx_user_id (user_id),
+    KEY idx_enterprise_id (enterprise_id),
+    KEY idx_level (level),
+    KEY idx_category (category),
+    KEY idx_operation_time (operation_time),
+    KEY idx_sync_status (sync_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运维日志表';
+
+-- =============================================
+-- 老版本升级脚本: 设备管理表扩展字段
+-- =============================================
+-- ALTER TABLE device_info ADD COLUMN brand VARCHAR(50) COMMENT '品牌' AFTER manufacturer;
+-- ALTER TABLE device_info ADD COLUMN platform VARCHAR(20) COMMENT '平台: Android/iOS' AFTER brand;
+-- ALTER TABLE device_info ADD COLUMN os_version VARCHAR(50) COMMENT '系统版本' AFTER platform;
+-- ALTER TABLE device_info ADD COLUMN sdk_version VARCHAR(20) COMMENT 'SDK版本' AFTER os_version;
+-- ALTER TABLE device_info ADD COLUMN last_heartbeat_time DATETIME COMMENT '最后心跳时间' AFTER last_connect_time;
+-- ALTER TABLE device_info ADD COLUMN network_type VARCHAR(20) COMMENT '网络类型: wifi/4G/5G/none' AFTER last_heartbeat_time;
+-- ALTER TABLE device_info ADD COLUMN battery_level INT COMMENT '电量百分比(0-100)' AFTER network_type;
+-- ALTER TABLE device_info ADD COLUMN storage_info JSON COMMENT '存储信息(JSON)' AFTER battery_level;
+-- ALTER TABLE device_info ADD COLUMN bluetooth_info JSON COMMENT '蓝牙信息(JSON)' AFTER storage_info;
+-- ALTER TABLE device_info ADD COLUMN app_version VARCHAR(20) COMMENT 'APP版本号' AFTER bluetooth_info;
+-- ALTER TABLE device_info ADD COLUMN build_number VARCHAR(20) COMMENT '构建号' AFTER app_version;
+-- ALTER TABLE device_info ADD COLUMN current_user_id BIGINT COMMENT '当前操作用户ID' AFTER build_number;
+-- ALTER TABLE device_info ADD COLUMN current_username VARCHAR(50) COMMENT '当前操作用户名' AFTER current_user_id;
+--
+-- ALTER TABLE device_info ADD INDEX idx_last_heartbeat_time (last_heartbeat_time);
+

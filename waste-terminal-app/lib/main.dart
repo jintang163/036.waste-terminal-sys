@@ -14,6 +14,10 @@ import 'providers/warning_provider.dart';
 import 'providers/waste_in_provider.dart';
 import 'providers/waste_out_provider.dart';
 import 'providers/waste_ledger_provider.dart';
+import 'services/device_self_check_service.dart';
+import 'services/operation_log_service.dart';
+import 'services/heartbeat_service.dart';
+import 'utils/logger_util.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,9 +68,36 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
     await _wasteOutProvider.init();
     await _wasteLedgerProvider.init();
 
+    await _initDeviceServices();
+
     setState(() {
       _isInitialized = true;
     });
+  }
+
+  Future<void> _initDeviceServices() async {
+    try {
+      await OperationLogService().init();
+      LoggerUtil.info('运维日志服务初始化完成');
+    } catch (e) {
+      LoggerUtil.error('运维日志服务初始化失败: $e');
+    }
+
+    if (_appProvider.isLoggedIn) {
+      try {
+        await HeartbeatService().start();
+        LoggerUtil.info('心跳服务已启动');
+      } catch (e) {
+        LoggerUtil.error('心跳服务启动失败: $e');
+      }
+
+      try {
+        await DeviceSelfCheckService().performSelfCheck();
+        LoggerUtil.info('启动时设备自检完成');
+      } catch (e) {
+        LoggerUtil.error('启动时设备自检失败: $e');
+      }
+    }
   }
 
   ThemeMode _getThemeMode(AppThemeMode mode) {

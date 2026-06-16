@@ -4,6 +4,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
+import '../services/device_self_check_service.dart';
+import '../services/operation_log_service.dart';
+import '../services/heartbeat_service.dart';
 import '../utils/sp_util.dart';
 
 enum AppThemeMode { light, dark, system }
@@ -110,13 +113,52 @@ class AppProvider extends ChangeNotifier {
 
       notifyListeners();
       _logger.i('用户登录成功: $username');
+
+      _onLoginSuccess();
     } catch (e) {
       _logger.e('用户登录失败: $e');
       rethrow;
     }
   }
 
+  Future<void> _onLoginSuccess() async {
+    try {
+      await OperationLogService().logInfo(
+        '用户登录成功',
+        category: 'auth',
+        userId: SpUtil.getUserId(),
+      );
+    } catch (_) {}
+
+    try {
+      await HeartbeatService().start();
+      _logger.i('登录后心跳服务已启动');
+    } catch (e) {
+      _logger.e('登录后心跳服务启动失败: $e');
+    }
+
+    try {
+      await DeviceSelfCheckService().performSelfCheck();
+      _logger.i('登录后设备自检完成');
+    } catch (e) {
+      _logger.e('登录后设备自检失败: $e');
+    }
+  }
+
   Future<void> logout() async {
+    try {
+      HeartbeatService().stop();
+      _logger.i('登出后心跳服务已停止');
+    } catch (_) {}
+
+    try {
+      await OperationLogService().logInfo(
+        '用户登出',
+        category: 'auth',
+        userId: SpUtil.getUserId(),
+      );
+    } catch (_) {}
+
     try {
       await _authService.logout();
       _userInfo = null;
@@ -135,6 +177,8 @@ class AppProvider extends ChangeNotifier {
       _enterpriseInfo = result['enterpriseInfo'];
       notifyListeners();
       _logger.i('自动登录成功');
+
+      _onLoginSuccess();
       return true;
     } catch (e) {
       _logger.w('自动登录失败: $e');

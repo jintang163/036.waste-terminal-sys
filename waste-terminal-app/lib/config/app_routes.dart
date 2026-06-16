@@ -22,6 +22,7 @@ import '../pages/waste_ledger_list_page.dart';
 import '../pages/waste_ledger_detail_page.dart';
 import '../pages/scale_calibration_page.dart';
 import '../pages/rfid_batch_in_page.dart';
+import '../pages/device_status_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -58,6 +59,7 @@ class AppRoutes {
   static const String wasteLedgerDetail = '/waste_ledger_detail';
   static const String scaleCalibration = '/scale_calibration';
   static const String rfidBatchIn = '/rfid_batch_in';
+  static const String deviceStatus = '/device_status';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -90,6 +92,7 @@ class AppRoutes {
         wasteLedger: (context) => const WasteLedgerListPage(),
         scaleCalibration: (context) => const ScaleCalibrationPage(),
         rfidBatchIn: (context) => const RfidBatchInPage(),
+        deviceStatus: (context) => const DeviceStatusPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {

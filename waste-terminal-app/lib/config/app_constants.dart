@@ -82,6 +82,15 @@ class StorageConstants {
 
   /// 地磅校准历史
   static const String scaleCalibrationHistory = 'scale_calibration_history';
+
+  /// 最后心跳时间
+  static const String lastHeartbeatTime = 'last_heartbeat_time';
+
+  /// 最后日志上传时间
+  static const String lastLogUploadTime = 'last_log_upload_time';
+
+  /// 设备自检结果缓存
+  static const String deviceSelfCheckResult = 'device_self_check_result';
 }
 
 /// 路由路径常量
@@ -113,6 +122,7 @@ class RouteConstants {
   static const String bluetoothDevice = '/bluetooth_device';
   static const String scaleConfig = '/scale_config';
   static const String scaleCalibration = '/scale_calibration';
+  static const String deviceStatus = '/device_status';
   static const String mine = '/mine';
   static const String profile = '/profile';
   static const String settings = '/settings';
@@ -428,6 +438,20 @@ class BusinessConstants {
   static const String recordTriggerWasteOut = 'waste_out';
   static const String recordTriggerAiEvent = 'ai_event';
   static const String recordTriggerManual = 'manual';
+
+  static const String deviceStatusOnline = 'online';
+  static const String deviceStatusOffline = 'offline';
+  static const String deviceStatusAbnormal = 'abnormal';
+
+  static const String logLevelInfo = 'info';
+  static const String logLevelWarning = 'warning';
+  static const String logLevelError = 'error';
+  static const String logLevelDebug = 'debug';
+
+  static const String logCategoryOperation = 'operation';
+  static const String logCategoryDevice = 'device';
+  static const String logCategorySystem = 'system';
+  static const String logCategorySync = 'sync';
 }
 
 /// 正则表达式常量
@@ -618,6 +642,13 @@ class ApiConstants {
   static const String deviceRegister = '/device/register';
   static const String deviceHeartbeat = '/device/heartbeat';
   static const String deviceUnbind = '/device/unbind';
+  static const String deviceSelfCheck = '/device/self-check';
+  static const String deviceStatusReport = '/device/status-report';
+
+  /// 运维日志
+  static const String logUpload = '/log/upload';
+  static const String logBatchUpload = '/log/batch-upload';
+  static const String logList = '/log/list';
 
   /// 统计报表
   static const String statsOverview = '/stats/overview';

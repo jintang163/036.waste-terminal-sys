@@ -169,6 +169,21 @@ class AppConfig {
   /// 是否启用调试日志
   static const bool enableDebugLog = true;
 
+  /// 心跳上报间隔（分钟）
+  static const int heartbeatIntervalMinutes = 5;
+
+  /// 日志上传间隔（分钟）
+  static const int logUploadIntervalMinutes = 15;
+
+  /// 设备异常判定时间（小时），超过此时间未上报心跳则标记异常
+  static const int deviceAbnormalThresholdHours = 24;
+
+  /// 单个日志文件最大大小（字节）
+  static const int maxLogFileSize = 5 * 1024 * 1024;
+
+  /// 存储空间告警阈值（字节），低于此值告警
+  static const int storageWarningThreshold = 500 * 1024 * 1024;
+
   /// 是否启用离线模式
   static const bool enableOfflineMode = true;
 
