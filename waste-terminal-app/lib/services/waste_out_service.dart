@@ -337,6 +337,9 @@ class WasteOutService {
     String? reviewRemark,
     int? reviewerId,
     String? reviewerName,
+    String? reviewerFaceAuthId,
+    String? reviewerFaceId,
+    String? reviewerFaceImage,
   }) async {
     try {
       final updateData = <String, dynamic>{
@@ -345,12 +348,32 @@ class WasteOutService {
         'review_remark': reviewRemark,
         'reviewer_id': reviewerId,
         'reviewer_name': reviewerName,
+        'reviewer_face_auth_id': reviewerFaceAuthId,
+        'reviewer_face_id': reviewerFaceId,
+        'reviewer_face_image': reviewerFaceImage,
         'sync_status': 0,
         'update_time': DateTime.now().toIso8601String(),
       };
       return await _wasteOutRecordDb.updateByOutNo(outNo, updateData);
     } catch (e) {
       _logger.e('更新出库记录复核状态失败: $e');
+      return 0;
+    }
+  }
+
+  Future<int> updateOutRecordStatus({
+    required String outNo,
+    required int status,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'status': status,
+        'sync_status': 0,
+        'update_time': DateTime.now().toIso8601String(),
+      };
+      return await _wasteOutRecordDb.updateByOutNo(outNo, updateData);
+    } catch (e) {
+      _logger.e('更新出库记录状态失败: $e');
       return 0;
     }
   }

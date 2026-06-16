@@ -445,6 +445,7 @@ class DatabaseTables {
       review_no TEXT,
       out_record_id INTEGER,
       out_no TEXT,
+      out_offline_id TEXT,
       waste_id INTEGER,
       waste_code TEXT,
       waste_name TEXT,

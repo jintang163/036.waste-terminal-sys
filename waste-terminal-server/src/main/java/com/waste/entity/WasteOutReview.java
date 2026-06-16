@@ -26,6 +26,8 @@ public class WasteOutReview extends BaseEntity {
 
     private String outNo;
 
+    private String outOfflineId;
+
     private Long wasteId;
 
     private String wasteCode;

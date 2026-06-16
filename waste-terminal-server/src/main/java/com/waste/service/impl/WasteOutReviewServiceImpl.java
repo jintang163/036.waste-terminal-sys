@@ -74,9 +74,26 @@ public class WasteOutReviewServiceImpl implements WasteOutReviewService {
     public Map<String, Object> createReview(WasteOutReviewDTO dto, Long enterpriseId) {
         Map<String, Object> result = new HashMap<>();
 
-        WasteOutRecord outRecord = outRecordMapper.selectById(dto.getOutRecordId());
+        WasteOutRecord outRecord = null;
+        if (dto.getOutRecordId() != null) {
+            outRecord = outRecordMapper.selectById(dto.getOutRecordId());
+        }
+        if (outRecord == null && StrUtil.isNotBlank(dto.getOutNo())) {
+            LambdaQueryWrapper<WasteOutRecord> outWrapper = new LambdaQueryWrapper<>();
+            outWrapper.eq(WasteOutRecord::getOutNo, dto.getOutNo());
+            outWrapper.eq(WasteOutRecord::getEnterpriseId, enterpriseId);
+            outWrapper.last("limit 1");
+            outRecord = outRecordMapper.selectOne(outWrapper);
+        }
+        if (outRecord == null && StrUtil.isNotBlank(dto.getOutOfflineId())) {
+            LambdaQueryWrapper<WasteOutRecord> outWrapper = new LambdaQueryWrapper<>();
+            outWrapper.eq(WasteOutRecord::getOfflineId, dto.getOutOfflineId());
+            outWrapper.eq(WasteOutRecord::getEnterpriseId, enterpriseId);
+            outWrapper.last("limit 1");
+            outRecord = outRecordMapper.selectOne(outWrapper);
+        }
         if (outRecord == null) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "出库记录不存在");
+            throw new BusinessException(ResultCode.PARAM_ERROR, "出库记录不存在，outNo=" + dto.getOutNo() + ", outOfflineId=" + dto.getOutOfflineId());
         }
 
         WasteCatalog catalog = catalogMapper.selectById(outRecord.getWasteId());
@@ -177,7 +194,17 @@ public class WasteOutReviewServiceImpl implements WasteOutReviewService {
         review.setUpdateTime(LocalDateTime.now());
         reviewMapper.updateById(review);
 
-        WasteOutRecord outRecord = outRecordMapper.selectById(review.getOutRecordId());
+        WasteOutRecord outRecord = null;
+        if (review.getOutRecordId() != null) {
+            outRecord = outRecordMapper.selectById(review.getOutRecordId());
+        }
+        if (outRecord == null && StrUtil.isNotBlank(review.getOutNo())) {
+            LambdaQueryWrapper<WasteOutRecord> outWrapper = new LambdaQueryWrapper<>();
+            outWrapper.eq(WasteOutRecord::getOutNo, review.getOutNo());
+            outWrapper.eq(WasteOutRecord::getEnterpriseId, enterpriseId);
+            outWrapper.last("limit 1");
+            outRecord = outRecordMapper.selectOne(outWrapper);
+        }
         if (outRecord != null) {
             if (dto.getReviewResult() == 1) {
                 outRecord.setReviewStatus(2);

@@ -107,7 +107,11 @@ class DatabaseHelper {
     }
     if (oldVersion < 7) {
       Batch batch = db.batch();
-      batch.execute(DatabaseTables.createTableWasteOutReview);
+      try {
+        batch.execute(DatabaseTables.createTableWasteOutReview);
+      } catch (e) {
+        _logger.w('创建表 waste_out_review 失败(可能已存在): $e');
+      }
       try {
         batch.execute('ALTER TABLE ${DatabaseTables.tableWasteOutRecord} ADD COLUMN review_status INTEGER DEFAULT 0');
       } catch (e) {

@@ -16,6 +16,8 @@ public class WasteOutReviewDTO {
 
     private String outNo;
 
+    private String outOfflineId;
+
     private Long wasteId;
 
     private String wasteCode;

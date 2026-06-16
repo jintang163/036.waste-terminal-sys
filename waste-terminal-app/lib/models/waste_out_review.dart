@@ -3,6 +3,7 @@ class WasteOutReview {
   final String reviewNo;
   final int? outRecordId;
   final String? outNo;
+  final String? outOfflineId;
   final int? wasteId;
   final String? wasteCode;
   final String? wasteName;
@@ -33,6 +34,7 @@ class WasteOutReview {
     required this.reviewNo,
     this.outRecordId,
     this.outNo,
+    this.outOfflineId,
     this.wasteId,
     this.wasteCode,
     this.wasteName,
@@ -65,6 +67,7 @@ class WasteOutReview {
       reviewNo: json['reviewNo'] as String? ?? '',
       outRecordId: json['outRecordId'] as int?,
       outNo: json['outNo'] as String?,
+      outOfflineId: json['outOfflineId'] as String?,
       wasteId: json['wasteId'] as int?,
       wasteCode: json['wasteCode'] as String?,
       wasteName: json['wasteName'] as String?,
@@ -106,6 +109,7 @@ class WasteOutReview {
       'reviewNo': reviewNo,
       'outRecordId': outRecordId,
       'outNo': outNo,
+      'outOfflineId': outOfflineId,
       'wasteId': wasteId,
       'wasteCode': wasteCode,
       'wasteName': wasteName,
@@ -139,6 +143,7 @@ class WasteOutReview {
       reviewNo: map['review_no'] as String? ?? '',
       outRecordId: map['out_record_id'] as int?,
       outNo: map['out_no'] as String?,
+      outOfflineId: map['out_offline_id'] as String?,
       wasteId: map['waste_id'] as int?,
       wasteCode: map['waste_code'] as String?,
       wasteName: map['waste_name'] as String?,
@@ -179,6 +184,7 @@ class WasteOutReview {
       'review_no': reviewNo,
       'out_record_id': outRecordId,
       'out_no': outNo,
+      'out_offline_id': outOfflineId,
       'waste_id': wasteId,
       'waste_code': wasteCode,
       'waste_name': wasteName,
@@ -211,6 +217,7 @@ class WasteOutReview {
     String? reviewNo,
     int? outRecordId,
     String? outNo,
+    String? outOfflineId,
     int? wasteId,
     String? wasteCode,
     String? wasteName,
@@ -241,6 +248,7 @@ class WasteOutReview {
       reviewNo: reviewNo ?? this.reviewNo,
       outRecordId: outRecordId ?? this.outRecordId,
       outNo: outNo ?? this.outNo,
+      outOfflineId: outOfflineId ?? this.outOfflineId,
       wasteId: wasteId ?? this.wasteId,
       wasteCode: wasteCode ?? this.wasteCode,
       wasteName: wasteName ?? this.wasteName,

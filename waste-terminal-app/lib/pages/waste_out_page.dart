@@ -656,7 +656,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
         operatorId: appProvider.userInfo?['id'] as int?,
         operatorName: appProvider.username,
         remark: _remarkController.text.trim().isEmpty ? null : _remarkController.text.trim(),
-        status: 0,
+        status: _doubleReviewRequired ? 0 : 2,
+        reviewStatus: _doubleReviewRequired ? 1 : 0,
         syncStatus: 0,
         offlineId: offlineId,
         enterpriseId: appProvider.enterpriseInfo?['id'] as int?,
@@ -746,7 +747,11 @@ class _WasteOutPageState extends State<WasteOutPage> {
         _isSaving = false;
       });
 
-      ToastUtil.showSuccess('出库保存成功');
+      if (_doubleReviewRequired) {
+        ToastUtil.showSuccess('出库记录已保存，等待复核确认');
+      } else {
+        ToastUtil.showSuccess('出库保存成功');
+      }
 
       if (_enableOperationRecord && _selectedCamera != null) {
         _triggerOperationRecord(outNo);
@@ -754,8 +759,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
 
       if (_doubleReviewRequired) {
         final reviewResult = await _createReviewRecord(
-          outRecordId: savedRecord['id'] as int,
           outNo: outNo,
+          offlineId: offlineId,
           wasteCode: _currentInventory!.wasteCode ?? '',
           wasteName: _currentInventory!.wasteName ?? '',
           wasteId: _currentInventory!.wasteId ?? 0,
@@ -764,11 +769,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
           _showReviewQrDialog(
             reviewNo: reviewResult['reviewNo'] as String,
             outNo: outNo,
-            qrContent: reviewResult['reviewQrCode'] as String,
+            qrContent: reviewResult['reviewQrCode'] as String? ?? '',
             wasteCode: _currentInventory!.wasteCode ?? '',
             wasteName: _currentInventory!.wasteName ?? '',
             operatorName: appProvider.username ?? '',
-            reviewId: reviewResult['id'] as int,
           );
           return;
         }
@@ -782,8 +786,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
   }
 
   Future<Map<String, dynamic>?> _createReviewRecord({
-    required int outRecordId,
     required String outNo,
+    required String offlineId,
     required String wasteCode,
     required String wasteName,
     required int wasteId,
@@ -793,8 +797,8 @@ class _WasteOutPageState extends State<WasteOutPage> {
       final qrContent = 'wastereview://$reviewNo?outNo=$outNo&wasteId=$wasteId';
 
       final result = await _reviewService.createReview(
-        outRecordId: outRecordId,
         outNo: outNo,
+        outOfflineId: offlineId,
         reviewQrCode: qrContent,
       );
 
@@ -860,7 +864,6 @@ class _WasteOutPageState extends State<WasteOutPage> {
     required String wasteCode,
     required String wasteName,
     required String operatorName,
-    required int reviewId,
   }) {
     showDialog(
       context: context,
@@ -986,17 +989,22 @@ class _WasteOutPageState extends State<WasteOutPage> {
                                       final updatedReview = await _reviewService.getByReviewNo(reviewNo);
                                       if (updatedReview != null && updatedReview.reviewResult != null) {
                                         Navigator.pop(dialogContext);
+                                        final reviewPassed = updatedReview.reviewResult == 1;
+                                        await WasteOutService().updateReviewStatus(
+                                          outNo: outNo,
+                                          reviewStatus: reviewPassed ? 2 : 3,
+                                          reviewRemark: updatedReview.reviewRemark,
+                                          reviewerId: updatedReview.reviewerId,
+                                          reviewerName: updatedReview.reviewerName,
+                                        );
+                                        if (reviewPassed) {
+                                          await WasteOutService().updateOutRecordStatus(outNo: outNo, status: 2);
+                                        }
                                         _showReviewResultDialog(
                                           reviewResult: updatedReview.reviewResult!,
                                           reviewRemark: updatedReview.reviewRemark,
                                           reviewerName: updatedReview.reviewerName,
                                           reviewTime: updatedReview.reviewTime,
-                                        );
-                                        await WasteOutService().updateReviewStatus(
-                                          outNo: outNo,
-                                          reviewStatus: updatedReview.reviewResult == 1 ? 2 : 3,
-                                          reviewRemark: updatedReview.reviewRemark,
-                                          reviewerName: updatedReview.reviewerName,
                                         );
                                       } else {
                                         ToastUtil.showInfo('暂无复核结果，请稍后再试');
@@ -1203,9 +1211,68 @@ class _WasteOutPageState extends State<WasteOutPage> {
   ) async {
     if (_isSaving) return;
 
+    final appProvider = context.read<AppProvider>();
+    final currentUsername = appProvider.username ?? '';
+    final faceAuthService = FaceAuthService();
+    final hasEnrolledFace = await faceAuthService.hasEnrolledFace(currentUsername);
+
+    if (!hasEnrolledFace) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('需要人脸验证', style: AppTextStyle.title),
+          content: Text('复核操作前必须先完成人脸录入。是否立即前往录入人脸？',
+              style: AppTextStyle.body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('去录入', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm == true) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (ctx) => const FaceEnrollPage()),
+        );
+        if (result != true) {
+          ToastUtil.showWarning('请先完成人脸录入');
+          return;
+        }
+      } else {
+        ToastUtil.showWarning('请先完成人脸录入，才能进行复核确认');
+        return;
+      }
+    }
+
+    Navigator.pop(dialogContext);
+
+    FaceAuthResult? authResult = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => FaceVerifyPage(
+          authType: 'waste_out_review',
+          businessType: 'waste_out_review',
+          businessNo: review.reviewNo,
+          targetUsername: currentUsername,
+          autoNavigateOnSuccess: true,
+        ),
+      ),
+    );
+
+    if (authResult == null || !authResult.success) {
+      ToastUtil.showWarning('人脸验证未通过，无法确认复核');
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
-      final appProvider = context.read<AppProvider>();
       final result = await _reviewService.confirmReview(
         reviewNo: review.reviewNo,
         reviewResult: reviewResult,
@@ -1213,6 +1280,11 @@ class _WasteOutPageState extends State<WasteOutPage> {
         reviewRemark: _reviewRemarkController.text.trim().isEmpty
             ? null
             : _reviewRemarkController.text.trim(),
+        reviewerFaceAuthId: authResult.authId,
+        reviewerFaceId: authResult.userFace?.faceId,
+        reviewerFaceImage: authResult.capturedImage != null
+            ? base64Encode(authResult!.capturedImage!)
+            : null,
       );
 
       if (result['success'] == true) {
@@ -1223,11 +1295,18 @@ class _WasteOutPageState extends State<WasteOutPage> {
             reviewRemark: _reviewRemarkController.text.trim().isEmpty
                 ? null
                 : _reviewRemarkController.text.trim(),
+            reviewerId: appProvider.userInfo?['id'] as int?,
             reviewerName: appProvider.username,
+            reviewerFaceAuthId: authResult.authId,
+            reviewerFaceId: authResult.userFace?.faceId,
+            reviewerFaceImage: authResult.capturedImage != null
+                ? base64Encode(authResult!.capturedImage!)
+                : null,
           );
+          if (reviewResult == 1) {
+            await WasteOutService().updateOutRecordStatus(outNo: review.outNo!, status: 2);
+          }
         }
-
-        Navigator.pop(dialogContext);
 
         _showReviewResultDialog(
           reviewResult: reviewResult,

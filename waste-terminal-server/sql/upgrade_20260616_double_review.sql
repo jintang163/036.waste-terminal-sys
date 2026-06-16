@@ -33,6 +33,7 @@ CREATE TABLE waste_out_review (
     review_no VARCHAR(50) NOT NULL COMMENT '复核单号',
     out_record_id BIGINT COMMENT '出库记录ID',
     out_no VARCHAR(50) COMMENT '出库单号',
+    out_offline_id VARCHAR(64) COMMENT '出库记录离线ID',
     waste_id BIGINT COMMENT '危废名录ID',
     waste_code VARCHAR(20) COMMENT '危废代码',
     waste_name VARCHAR(200) COMMENT '危废名称',
@@ -62,6 +63,7 @@ CREATE TABLE waste_out_review (
     UNIQUE KEY uk_offline_id (offline_id),
     KEY idx_out_record_id (out_record_id),
     KEY idx_out_no (out_no),
+    KEY idx_out_offline_id (out_offline_id),
     KEY idx_operator_id (operator_id),
     KEY idx_reviewer_id (reviewer_id),
     KEY idx_enterprise_id (enterprise_id)

@@ -19,8 +19,8 @@ class WasteOutReviewService {
   WasteOutReviewService._internal();
 
   Future<Map<String, dynamic>> createReview({
-    required int outRecordId,
     required String outNo,
+    String? outOfflineId,
     String? reviewQrCode,
     String? offlineId,
   }) async {
@@ -34,7 +34,6 @@ class WasteOutReviewService {
 
     final review = WasteOutReview(
       reviewNo: reviewNo,
-      outRecordId: outRecordId,
       outNo: outNo,
       operatorId: userId,
       operatorName: username,
@@ -64,8 +63,8 @@ class WasteOutReviewService {
       try {
         final payload = {
           'reviewNo': reviewNo,
-          'outRecordId': outRecordId,
           'outNo': outNo,
+          'outOfflineId': outOfflineId,
           'operatorId': userId,
           'operatorName': username,
           'reviewQrCode': reviewQrCode,
