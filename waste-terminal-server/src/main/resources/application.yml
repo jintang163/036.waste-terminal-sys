@@ -102,6 +102,19 @@ waste:
   storage-limit-days: 90
   warn-before-days: 7
   sync-batch-size: 100
+  ai:
+    recognition:
+      enabled: true
+      provider: huawei
+      endpoint: https://ais.cn-north-4.myhuaweicloud.com/v2/image/recognition
+      ak: YOUR_HUAWEI_AI_AK
+      sk: YOUR_HUAWEI_AI_SK
+      model-id: waste_classification_v1
+      confidence-threshold: 0.6
+      max-file-size: 5242880
+      connection-timeout: 10000
+      read-timeout: 30000
+      mock-enabled: true
   national-platform:
     url: https://api.ep.gov.cn/waste
     app-id: EP_APP_20240001

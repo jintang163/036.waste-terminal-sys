@@ -713,4 +713,7 @@ class ApiConstants {
   static const String transportTrackReplay = '/transport-track/replay';
   static const String transportTrackUploadPoint = '/transport-track/upload-point';
   static const String transportTrackUploadPoints = '/transport-track/upload-points';
+
+  static const String wasteAiRecognize = '/waste-ai/recognition/recognize';
+  static const String wasteAiConfig = '/waste-ai/recognition/config';
 }

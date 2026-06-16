@@ -30,7 +30,9 @@ import '../utils/toast_util.dart';
 import '../utils/uuid_util.dart';
 import '../utils/permission_util.dart';
 import '../models/waste_catalog.dart';
+import '../models/waste_ai_recognition.dart';
 import '../models/camera_model.dart';
+import '../widgets/waste_ai_recognition_widget.dart';
 import 'face_verify_page.dart';
 
 class WasteInPage extends StatefulWidget {
@@ -771,6 +773,22 @@ class _WasteInPageState extends State<WasteInPage> {
     }
   }
 
+  void _onAiRecognitionResult(
+      WasteAiRecognitionResult result, WasteCatalog? catalog) {
+    setState(() {
+      if (catalog != null) {
+        _selectedCatalog = catalog;
+      } else {
+        _selectedCatalog = WasteCatalog(
+          wasteCode: result.wasteCode,
+          wasteName: result.wasteName,
+          wasteCategory: result.wasteCategory,
+          wasteType: result.wasteType,
+        );
+      }
+    });
+  }
+
   void _resetForm() {
     setState(() {
       _selectedCatalog = null;
@@ -822,6 +840,10 @@ class _WasteInPageState extends State<WasteInPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    WasteAiRecognitionWidget(
+                      onResultSelected: _onAiRecognitionResult,
+                    ),
+                    SizedBox(height: 16.h),
                     _buildCatalogSection(),
                     SizedBox(height: 16.h),
                     _buildWeightSection(),

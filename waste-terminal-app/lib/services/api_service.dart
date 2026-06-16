@@ -28,6 +28,7 @@ import '../models/ai_capture_event.dart';
 import '../models/transport_vehicle.dart';
 import '../models/transport_driver.dart';
 import '../models/transport_track.dart';
+import '../models/waste_ai_recognition.dart';
 import '../utils/logger_util.dart';
 import '../utils/sp_util.dart';
 
@@ -1611,6 +1612,56 @@ class ApiService {
       '${ApiConstants.transportTrackDetail}/$trackId',
     );
     return parseData<TransportTrack>(response, (e) => TransportTrack.fromJson(e));
+  }
+
+  Future<WasteAiRecognitionResponse?> recognizeWaste(String filePath,
+      {ProgressCallback? onSendProgress, CancelToken? cancelToken}) async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) {
+        throw ApiException(code: -1, message: 'AI识别需要网络连接');
+      }
+
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(
+          filePath,
+          filename: filePath.split('/').last,
+        ),
+      });
+
+      final response = await _dio.post(
+        ApiConstants.wasteAiRecognize,
+        data: formData,
+        onSendProgress: onSendProgress,
+        cancelToken: cancelToken,
+      );
+
+      final handledResponse = _handleResponse(response);
+      if (handledResponse.data != null &&
+          handledResponse.data['data'] != null) {
+        return WasteAiRecognitionResponse.fromJson(
+            Map<String, dynamic>.from(handledResponse.data['data']));
+      }
+      return null;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>?> getWasteAiConfig() async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) return null;
+
+      final response = await get(ApiConstants.wasteAiConfig);
+      if (response.data != null && response.data['data'] != null) {
+        return Map<String, dynamic>.from(response.data['data']);
+      }
+      return null;
+    } catch (e) {
+      _logger.w('获取AI识别配置失败: $e');
+      return null;
+    }
   }
 
   /// 释放资源
