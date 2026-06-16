@@ -1,43 +1,59 @@
 class WasteAiRecognitionResult {
+  final int? catalogId;
   final String? wasteCode;
   final String? wasteName;
   final String? wasteCategory;
   final String? wasteType;
+  final String? hazardCode;
+  final String? disposalMethod;
+  final String? storageRequirement;
+  final String? safetyMeasures;
   final double? confidence;
   final String? description;
-  final int? catalogId;
 
   WasteAiRecognitionResult({
+    this.catalogId,
     this.wasteCode,
     this.wasteName,
     this.wasteCategory,
     this.wasteType,
+    this.hazardCode,
+    this.disposalMethod,
+    this.storageRequirement,
+    this.safetyMeasures,
     this.confidence,
     this.description,
-    this.catalogId,
   });
 
   factory WasteAiRecognitionResult.fromJson(Map<String, dynamic> json) {
     return WasteAiRecognitionResult(
+      catalogId: json['catalogId'] as int?,
       wasteCode: json['wasteCode'] as String?,
       wasteName: json['wasteName'] as String?,
       wasteCategory: json['wasteCategory'] as String?,
       wasteType: json['wasteType'] as String?,
+      hazardCode: json['hazardCode'] as String?,
+      disposalMethod: json['disposalMethod'] as String?,
+      storageRequirement: json['storageRequirement'] as String?,
+      safetyMeasures: json['safetyMeasures'] as String?,
       confidence: (json['confidence'] as num?)?.toDouble(),
       description: json['description'] as String?,
-      catalogId: json['catalogId'] as int?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'catalogId': catalogId,
       'wasteCode': wasteCode,
       'wasteName': wasteName,
       'wasteCategory': wasteCategory,
       'wasteType': wasteType,
+      'hazardCode': hazardCode,
+      'disposalMethod': disposalMethod,
+      'storageRequirement': storageRequirement,
+      'safetyMeasures': safetyMeasures,
       'confidence': confidence,
       'description': description,
-      'catalogId': catalogId,
     };
   }
 }

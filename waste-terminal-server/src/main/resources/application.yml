@@ -114,7 +114,7 @@ waste:
       max-file-size: 5242880
       connection-timeout: 10000
       read-timeout: 30000
-      mock-enabled: true
+      mock-enabled: false
   national-platform:
     url: https://api.ep.gov.cn/waste
     app-id: EP_APP_20240001

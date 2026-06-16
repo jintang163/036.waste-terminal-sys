@@ -9,13 +9,17 @@ public class WasteAiRecognitionDTO {
 
     @Data
     public static class WasteAiRecognitionResult {
+        private Long catalogId;
         private String wasteCode;
         private String wasteName;
         private String wasteCategory;
         private String wasteType;
+        private String hazardCode;
+        private String disposalMethod;
+        private String storageRequirement;
+        private String safetyMeasures;
         private Double confidence;
         private String description;
-        private Long catalogId;
     }
 
     @Data

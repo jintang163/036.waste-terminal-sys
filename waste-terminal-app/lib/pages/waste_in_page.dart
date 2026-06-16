@@ -780,10 +780,16 @@ class _WasteInPageState extends State<WasteInPage> {
         _selectedCatalog = catalog;
       } else {
         _selectedCatalog = WasteCatalog(
+          id: result.catalogId,
           wasteCode: result.wasteCode,
           wasteName: result.wasteName,
           wasteCategory: result.wasteCategory,
           wasteType: result.wasteType,
+          hazardCode: result.hazardCode,
+          disposalMethod: result.disposalMethod,
+          storageRequirement: result.storageRequirement,
+          safetyMeasures: result.safetyMeasures,
+          description: result.description,
         );
       }
     });
