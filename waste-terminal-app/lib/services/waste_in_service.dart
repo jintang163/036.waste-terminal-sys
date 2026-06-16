@@ -1,8 +1,10 @@
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/app_constants.dart';
 import '../db/waste_in_record_db.dart';
 import 'api_service.dart';
+import 'operation_log_service.dart';
 
 class WasteInService {
   static final WasteInService _instance = WasteInService._internal();
@@ -28,6 +30,22 @@ class WasteInService {
       _logger.i('新增入库记录成功，本地ID: $id, offlineId: $offlineId');
 
       bool hasNetwork = await _apiService.isNetworkAvailable();
+
+      try {
+        await OperationLogService().logInfo(
+          '新增入库记录',
+          category: BusinessConstants.logCategoryOperation,
+          module: 'waste_in',
+          action: 'add',
+          extra: {
+            'offlineId': offlineId,
+            'wasteCode': record['waste_code'],
+            'wasteName': record['waste_name'],
+            'weight': record['weight'],
+          },
+        );
+      } catch (_) {}
+
       if (hasNetwork) {
         try {
           await _syncSingleRecord(record);
@@ -39,6 +57,18 @@ class WasteInService {
       return {...record, 'id': id};
     } catch (e) {
       _logger.e('新增入库记录失败: $e');
+      try {
+        await OperationLogService().logError(
+          '新增入库记录失败: $e',
+          category: BusinessConstants.logCategoryOperation,
+          module: 'waste_in',
+          action: 'add',
+          extra: {
+            'error': e.toString(),
+            'wasteCode': record['waste_code'],
+          },
+        );
+      } catch (_) {}
       rethrow;
     }
   }

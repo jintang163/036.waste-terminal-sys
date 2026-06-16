@@ -3,6 +3,7 @@ import 'package:logger/logger.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/app_constants.dart';
 import '../models/waste_in_record.dart';
 import '../models/waste_out_record.dart';
 import '../models/face_auth_record_model.dart';
@@ -23,6 +24,7 @@ import '../db/transport_driver_db.dart';
 import '../db/transport_track_db.dart';
 
 import 'api_service.dart';
+import 'operation_log_service.dart';
 
 enum SyncStatus { idle, syncing, success, failed }
 enum SyncType { full, incremental }
@@ -127,6 +129,18 @@ class SyncService {
     DateTime startTime = DateTime.now();
 
     try {
+      await OperationLogService().logInfo(
+        '开始全量同步',
+        category: BusinessConstants.logCategorySync,
+        module: 'sync',
+        action: 'full_sync_start',
+        extra: {
+          'syncId': logId,
+        },
+      );
+    } catch (_) {}
+
+    try {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.full;
       _progress = 0.0;
@@ -196,6 +210,21 @@ class SyncService {
         'create_time': DateTime.now().toIso8601String(),
       });
 
+      try {
+        await OperationLogService().logInfo(
+          '全量同步完成',
+          category: BusinessConstants.logCategorySync,
+          module: 'sync',
+          action: 'full_sync_success',
+          extra: {
+            'syncId': logId,
+            'durationSeconds': DateTime.now().difference(startTime).inSeconds,
+            'totalCount': _totalCount,
+            'successCount': _completedCount,
+          },
+        );
+      } catch (_) {}
+
       _logger.i('全量同步完成');
     } catch (e) {
       _logger.e('全量同步失败: $e');
@@ -215,6 +244,20 @@ class SyncService {
         'create_time': DateTime.now().toIso8601String(),
       });
 
+      try {
+        await OperationLogService().logError(
+          '全量同步失败: $e',
+          category: BusinessConstants.logCategorySync,
+          module: 'sync',
+          action: 'full_sync_failed',
+          extra: {
+            'syncId': logId,
+            'error': e.toString(),
+            'durationSeconds': DateTime.now().difference(startTime).inSeconds,
+          },
+        );
+      } catch (_) {}
+
       rethrow;
     }
   }
@@ -228,6 +271,18 @@ class SyncService {
     _logger.i('开始增量同步');
     String logId = _uuid.v4();
     DateTime startTime = DateTime.now();
+
+    try {
+      await OperationLogService().logInfo(
+        '开始增量同步',
+        category: BusinessConstants.logCategorySync,
+        module: 'sync',
+        action: 'incremental_sync_start',
+        extra: {
+          'syncId': logId,
+        },
+      );
+    } catch (_) {}
 
     try {
       _updateStatus(SyncStatus.syncing);
@@ -299,6 +354,21 @@ class SyncService {
         'create_time': DateTime.now().toIso8601String(),
       });
 
+      try {
+        await OperationLogService().logInfo(
+          '增量同步完成',
+          category: BusinessConstants.logCategorySync,
+          module: 'sync',
+          action: 'incremental_sync_success',
+          extra: {
+            'syncId': logId,
+            'durationSeconds': DateTime.now().difference(startTime).inSeconds,
+            'totalCount': _totalCount,
+            'successCount': _completedCount,
+          },
+        );
+      } catch (_) {}
+
       _logger.i('增量同步完成');
     } catch (e) {
       _logger.e('增量同步失败: $e');
@@ -317,6 +387,20 @@ class SyncService {
         'error_msg': e.toString(),
         'create_time': DateTime.now().toIso8601String(),
       });
+
+      try {
+        await OperationLogService().logError(
+          '增量同步失败: $e',
+          category: BusinessConstants.logCategorySync,
+          module: 'sync',
+          action: 'incremental_sync_failed',
+          extra: {
+            'syncId': logId,
+            'error': e.toString(),
+            'durationSeconds': DateTime.now().difference(startTime).inSeconds,
+          },
+        );
+      } catch (_) {}
     }
   }
 

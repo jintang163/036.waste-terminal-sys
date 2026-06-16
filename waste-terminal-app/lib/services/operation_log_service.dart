@@ -15,6 +15,8 @@ class OperationLog {
   final String id;
   final String level;
   final String category;
+  final String? module;
+  final String? action;
   final String message;
   final String? userId;
   final String? username;
@@ -30,6 +32,8 @@ class OperationLog {
     String? id,
     required this.level,
     required this.category,
+    this.module,
+    this.action,
     required this.message,
     this.userId,
     this.username,
@@ -49,6 +53,8 @@ class OperationLog {
       'logId': id,
       'level': level,
       'category': category,
+      'module': module,
+      'action': action,
       'message': message,
       'userId': userId,
       'username': username,
@@ -69,6 +75,8 @@ class OperationLog {
       id: logId,
       level: json['level'] as String? ?? BusinessConstants.logLevelInfo,
       category: json['category'] as String? ?? BusinessConstants.logCategoryOperation,
+      module: json['module'] as String?,
+      action: json['action'] as String?,
       message: json['message'] as String? ?? '',
       userId: json['userId'] as String?,
       username: json['username'] as String?,
@@ -89,6 +97,8 @@ class OperationLog {
     buffer.write('[${timestamp.toIso8601String()}]');
     buffer.write('[$level]');
     buffer.write('[$category]');
+    if (module != null) buffer.write('[$module]');
+    if (action != null) buffer.write('[$action]');
     if (userId != null) buffer.write('[$userId]');
     buffer.write(' $message');
     if (extra != null && extra!.isNotEmpty) {
@@ -207,6 +217,8 @@ class OperationLogService {
     required String message,
     String level = BusinessConstants.logLevelInfo,
     String category = BusinessConstants.logCategoryOperation,
+    String? module,
+    String? action,
     Map<String, dynamic>? extra,
     bool forceOffline = false,
   }) async {
@@ -220,6 +232,8 @@ class OperationLogService {
     final log = OperationLog(
       level: level,
       category: category,
+      module: module,
+      action: action,
       message: message,
       userId: userId,
       username: username,
@@ -242,12 +256,16 @@ class OperationLogService {
   Future<OperationLog> logInfo(
     String message, {
     String category = BusinessConstants.logCategoryOperation,
+    String? module,
+    String? action,
     Map<String, dynamic>? extra,
   }) {
     return log(
       message: message,
       level: BusinessConstants.logLevelInfo,
       category: category,
+      module: module,
+      action: action,
       extra: extra,
     );
   }
@@ -255,12 +273,16 @@ class OperationLogService {
   Future<OperationLog> logWarning(
     String message, {
     String category = BusinessConstants.logCategoryOperation,
+    String? module,
+    String? action,
     Map<String, dynamic>? extra,
   }) {
     return log(
       message: message,
       level: BusinessConstants.logLevelWarning,
       category: category,
+      module: module,
+      action: action,
       extra: extra,
     );
   }
@@ -268,6 +290,8 @@ class OperationLogService {
   Future<OperationLog> logError(
     String message, {
     String category = BusinessConstants.logCategoryOperation,
+    String? module,
+    String? action,
     Map<String, dynamic>? extra,
     dynamic error,
     StackTrace? stackTrace,
@@ -281,6 +305,8 @@ class OperationLogService {
       message: message,
       level: BusinessConstants.logLevelError,
       category: category,
+      module: module,
+      action: action,
       extra: extraData.isNotEmpty ? extraData : null,
     );
   }
@@ -288,12 +314,16 @@ class OperationLogService {
   Future<OperationLog> logDebug(
     String message, {
     String category = BusinessConstants.logCategorySystem,
+    String? module,
+    String? action,
     Map<String, dynamic>? extra,
   }) {
     if (!AppConfig.enableDebugLog) {
       return Future.value(OperationLog(
         level: BusinessConstants.logLevelDebug,
         category: category,
+        module: module,
+        action: action,
         message: message,
       ));
     }
@@ -301,6 +331,8 @@ class OperationLogService {
       message: message,
       level: BusinessConstants.logLevelDebug,
       category: category,
+      module: module,
+      action: action,
       extra: extra,
     );
   }

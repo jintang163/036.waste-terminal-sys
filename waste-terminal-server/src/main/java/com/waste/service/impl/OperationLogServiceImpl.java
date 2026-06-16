@@ -99,18 +99,56 @@ public class OperationLogServiceImpl implements OperationLogService {
         Map<String, Object> result = new HashMap<>();
         int successCount = 0;
         int failCount = 0;
+        int skipCount = 0;
         List<String> failedLogIds = new ArrayList<>();
+        List<String> skippedLogIds = new ArrayList<>();
         LocalDateTime uploadTime = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
 
+        List<String> logIds = new ArrayList<>();
+        for (Map<String, Object> logData : logDataList) {
+            String clientLogId = getStrValue(logData, "logId");
+            if (clientLogId == null) {
+                clientLogId = getStrValue(logData, "id");
+            }
+            if (clientLogId != null) {
+                logIds.add(clientLogId);
+            }
+        }
+
+        List<String> existingLogIds = new ArrayList<>();
+        if (!logIds.isEmpty()) {
+            LambdaQueryWrapper<OperationLog> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.in(OperationLog::getLogId, logIds);
+            queryWrapper.select(OperationLog::getLogId);
+            List<OperationLog> existingLogs = operationLogMapper.selectList(queryWrapper);
+            for (OperationLog log : existingLogs) {
+                existingLogIds.add(log.getLogId());
+            }
+        }
+
         for (Map<String, Object> logData : logDataList) {
             try {
+                String clientLogId = getStrValue(logData, "logId");
+                if (clientLogId == null) {
+                    clientLogId = getStrValue(logData, "id");
+                }
+
+                if (clientLogId != null && existingLogIds.contains(clientLogId)) {
+                    skipCount++;
+                    skippedLogIds.add(clientLogId);
+                    continue;
+                }
+
                 OperationLog opLog = convertToEntity(logData, uploadTime, formatter);
                 operationLogMapper.insert(opLog);
                 successCount++;
             } catch (Exception e) {
                 failCount++;
                 Object logIdObj = logData.get("logId");
+                if (logIdObj == null) {
+                    logIdObj = logData.get("id");
+                }
                 if (logIdObj != null) {
                     failedLogIds.add(logIdObj.toString());
                 }
@@ -121,14 +159,18 @@ public class OperationLogServiceImpl implements OperationLogService {
         result.put("success", failCount == 0);
         result.put("totalCount", logDataList.size());
         result.put("successCount", successCount);
+        result.put("skipCount", skipCount);
         result.put("failCount", failCount);
         result.put("uploadTime", uploadTime.toString());
         if (!failedLogIds.isEmpty()) {
             result.put("failedLogIds", failedLogIds);
         }
+        if (!skippedLogIds.isEmpty()) {
+            result.put("skippedLogIds", skippedLogIds);
+        }
 
-        log.info("运维日志批量上传完成: total={}, success={}, fail={}",
-                logDataList.size(), successCount, failCount);
+        log.info("运维日志批量上传完成: total={}, success={}, skip={}, fail={}",
+                logDataList.size(), successCount, skipCount, failCount);
 
         return result;
     }

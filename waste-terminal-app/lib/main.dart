@@ -83,19 +83,19 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
       LoggerUtil.error('运维日志服务初始化失败: $e');
     }
 
+    try {
+      await DeviceSelfCheckService().performSelfCheck();
+      LoggerUtil.info('启动时设备自检完成');
+    } catch (e) {
+      LoggerUtil.error('启动时设备自检失败: $e');
+    }
+
     if (_appProvider.isLoggedIn) {
       try {
         await HeartbeatService().start();
         LoggerUtil.info('心跳服务已启动');
       } catch (e) {
         LoggerUtil.error('心跳服务启动失败: $e');
-      }
-
-      try {
-        await DeviceSelfCheckService().performSelfCheck();
-        LoggerUtil.info('启动时设备自检完成');
-      } catch (e) {
-        LoggerUtil.error('启动时设备自检失败: $e');
       }
     }
   }

@@ -37,9 +37,14 @@ class _DeviceStatusPageState extends State<DeviceStatusPage> {
     setState(() => _isLoading = true);
 
     try {
-      final cached = await _selfCheckService.getCachedReport();
-      if (cached != null) {
-        _report = cached;
+      final lastReport = _selfCheckService.lastReport;
+      if (lastReport != null) {
+        _report = lastReport;
+      } else {
+        final cached = await _selfCheckService.getCachedReport();
+        if (cached != null) {
+          _report = cached;
+        }
       }
       _logStats = await _logService.getLogStats();
     } catch (e) {
