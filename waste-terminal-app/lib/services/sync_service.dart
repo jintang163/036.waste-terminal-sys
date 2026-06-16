@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:logger/logger.dart';
-import 'package:connectivity_plus/connectivity.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/waste_in_record.dart';
 import '../models/waste_out_record.dart';
 import '../models/face_auth_record_model.dart';
+import '../models/transport_track.dart';
 import '../db/sync_log_db.dart';
 import '../db/waste_catalog_db.dart';
 import '../db/waste_container_db.dart';
@@ -17,6 +18,9 @@ import '../db/inventory_check_db.dart';
 import '../db/warning_record_db.dart';
 import '../db/user_face_db.dart';
 import '../db/face_auth_record_db.dart';
+import '../db/transport_vehicle_db.dart';
+import '../db/transport_driver_db.dart';
+import '../db/transport_track_db.dart';
 
 import 'api_service.dart';
 
@@ -31,6 +35,9 @@ enum SyncModule {
   inventory,
   inventoryCheck,
   warning,
+  transportVehicle,
+  transportDriver,
+  transportTrack,
 }
 
 class SyncService {
@@ -54,6 +61,9 @@ class SyncService {
   final LocalRecordTaskDb _localRecordTaskDb = LocalRecordTaskDb();
   final UserFaceDb _userFaceDb = UserFaceDb();
   final FaceAuthRecordDb _faceAuthRecordDb = FaceAuthRecordDb();
+  final TransportVehicleDb _transportVehicleDb = TransportVehicleDb();
+  final TransportDriverDb _transportDriverDb = TransportDriverDb();
+  final TransportTrackDb _transportTrackDb = TransportTrackDb();
   final SyncLogDb _syncLogDb = SyncLogDb();
 
   SyncStatus _syncStatus = SyncStatus.idle;
@@ -89,10 +99,13 @@ class SyncService {
 
   void _initConnectivityListener() {
     _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
-      (ConnectivityResult result) {
-        if (result != ConnectivityResult.none && _autoSyncEnabled && !isSyncing) {
-          _logger.d('网络已连接，触发自动同步');
-          incrementalSync();
+      (List<ConnectivityResult> results) {
+        if (results.isNotEmpty) {
+          final result = results.first;
+          if (result != ConnectivityResult.none && _autoSyncEnabled && !isSyncing) {
+            _logger.d('网络已连接，触发自动同步');
+            incrementalSync();
+          }
         }
       },
     );
@@ -117,7 +130,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.full;
       _progress = 0.0;
-      _totalCount = 13;
+      _totalCount = 16;
       _completedCount = 0;
 
       await _syncCamera();
@@ -141,23 +154,32 @@ class SyncService {
       await _syncUserFace();
       _updateProgress(7);
 
-      await _uploadWasteInRecords();
+      await _syncTransportVehicle();
       _updateProgress(8);
 
-      await _uploadWasteOutRecords();
+      await _syncTransportDriver();
       _updateProgress(9);
 
-      await _uploadTransferOrders();
+      await _uploadWasteInRecords();
       _updateProgress(10);
 
-      await _uploadInventoryChecks();
+      await _uploadWasteOutRecords();
       _updateProgress(11);
 
-      await _uploadLocalRecords();
+      await _uploadTransferOrders();
       _updateProgress(12);
 
-      await _uploadFaceAuthRecords();
+      await _uploadInventoryChecks();
       _updateProgress(13);
+
+      await _uploadLocalRecords();
+      _updateProgress(14);
+
+      await _uploadFaceAuthRecords();
+      _updateProgress(15);
+
+      await _uploadTransportTracks();
+      _updateProgress(16);
 
       _updateStatus(SyncStatus.success);
 
@@ -211,7 +233,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.incremental;
       _progress = 0.0;
-      _totalCount = 13;
+      _totalCount = 16;
       _completedCount = 0;
 
       await _syncCamera();
@@ -235,23 +257,32 @@ class SyncService {
       await _syncUserFace();
       _updateProgress(7);
 
-      await _uploadWasteInRecords();
+      await _syncTransportVehicle();
       _updateProgress(8);
 
-      await _uploadWasteOutRecords();
+      await _syncTransportDriver();
       _updateProgress(9);
 
-      await _uploadTransferOrders();
+      await _uploadWasteInRecords();
       _updateProgress(10);
 
-      await _uploadInventoryChecks();
+      await _uploadWasteOutRecords();
       _updateProgress(11);
 
-      await _uploadLocalRecords();
+      await _uploadTransferOrders();
       _updateProgress(12);
 
-      await _uploadFaceAuthRecords();
+      await _uploadInventoryChecks();
       _updateProgress(13);
+
+      await _uploadLocalRecords();
+      _updateProgress(14);
+
+      await _uploadFaceAuthRecords();
+      _updateProgress(15);
+
+      await _uploadTransportTracks();
+      _updateProgress(16);
 
       _updateStatus(SyncStatus.success);
 
@@ -579,11 +610,14 @@ class SyncService {
     count += await _localRecordTaskDb.queryUnsyncedCount();
     final authRecords = await _faceAuthRecordDb.queryUnsynced();
     count += authRecords.length;
+    final trackPoints = await _transportTrackDb.queryUnsyncedPoints();
+    count += trackPoints.length;
     return count;
   }
 
   Future<Map<String, int>> getUnsyncedCountByModule() async {
     final authRecords = await _faceAuthRecordDb.queryUnsynced();
+    final trackPoints = await _transportTrackDb.queryUnsyncedPoints();
     return {
       'wasteIn': await _wasteInRecordDb.queryUnsyncedCount(),
       'wasteOut': await _wasteOutRecordDb.queryUnsyncedCount(),
@@ -591,6 +625,7 @@ class SyncService {
       'inventoryCheck': await _inventoryCheckDb.queryUnsyncedChecksCount(),
       'localRecord': await _localRecordTaskDb.queryUnsyncedCount(),
       'faceAuthRecord': authRecords.length,
+      'transportTrack': trackPoints.length,
     };
   }
 
@@ -663,6 +698,111 @@ class SyncService {
       _logger.d('人脸信息同步完成，数量: ${faceList.length}');
     } catch (e) {
       _logger.w('人脸信息同步失败: $e');
+    }
+  }
+
+  Future<void> _syncTransportVehicle() async {
+    _currentModule = '运输车辆';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过运输车辆同步');
+        return;
+      }
+
+      final response = await _apiService.getTransportVehicles();
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> vehicleList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _transportVehicleDb.replaceAll(vehicleList);
+      _logger.d('运输车辆同步完成，数量: ${vehicleList.length}');
+    } catch (e) {
+      _logger.w('运输车辆同步失败: $e');
+    }
+  }
+
+  Future<void> _syncTransportDriver() async {
+    _currentModule = '驾驶员';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过驾驶员同步');
+        return;
+      }
+
+      final response = await _apiService.getTransportDrivers();
+      List<dynamic> data = response.data['data'] ?? [];
+
+      List<Map<String, dynamic>> driverList =
+          data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      await _transportDriverDb.replaceAll(driverList);
+      _logger.d('驾驶员同步完成，数量: ${driverList.length}');
+    } catch (e) {
+      _logger.w('驾驶员同步失败: $e');
+    }
+  }
+
+  Future<void> _uploadTransportTracks() async {
+    _currentModule = '运输轨迹';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过运输轨迹上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsyncedPoints = await _transportTrackDb.queryUnsyncedPoints();
+      if (unsyncedPoints.isEmpty) {
+        _logger.d('无待同步轨迹点');
+        return;
+      }
+
+      _logger.d('待同步轨迹点数量: ${unsyncedPoints.length}');
+
+      final batchSize = 50;
+      for (var i = 0; i < unsyncedPoints.length; i += batchSize) {
+        final end = (i + batchSize < unsyncedPoints.length) ? i + batchSize : unsyncedPoints.length;
+        final batch = unsyncedPoints.sublist(i, end);
+
+        try {
+          final pointList = batch.map((e) => TrackPoint.fromDbMap(e).toJson()).toList();
+          final response = await _apiService.uploadTrackPoints(pointList);
+
+          if (response.data['code'] == 200) {
+            final pointIds = batch
+                .map((e) => e['point_id']?.toString() ?? '')
+                .where((id) => id.isNotEmpty)
+                .toList();
+
+            for (var pointId in pointIds) {
+              await _transportTrackDb.updatePointSyncStatus(
+                pointId,
+                1,
+                syncTime: DateTime.now().toIso8601String(),
+              );
+            }
+
+            _logger.d('批量上传轨迹点成功，数量: ${pointIds.length}');
+          } else {
+            _logger.w('批量上传轨迹点失败: ${response.data['msg']}');
+          }
+        } catch (e) {
+          _logger.w('批量上传轨迹点异常: $e');
+        }
+      }
+
+      _logger.d('运输轨迹上传完成');
+    } catch (e) {
+      _logger.w('运输轨迹上传失败: $e');
     }
   }
 

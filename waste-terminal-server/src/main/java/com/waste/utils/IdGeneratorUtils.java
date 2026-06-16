@@ -51,4 +51,12 @@ public class IdGeneratorUtils {
     public static String generateLedgerReportLogNo() {
         return "RZ" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
     }
+
+    public static String generateTrackNo() {
+        return "GJ" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
+    }
+
+    public static String generatePointNo() {
+        return "GP" + LocalDateTime.now().format(DATE_FORMATTER) + String.format("%04d", snowflake.nextId() % 10000);
+    }
 }

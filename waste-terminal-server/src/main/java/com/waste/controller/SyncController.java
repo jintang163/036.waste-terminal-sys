@@ -87,6 +87,12 @@ public class SyncController {
     private WarningRecordService warningRecordService;
 
     @Autowired
+    private com.waste.service.TransportVehicleService transportVehicleService;
+
+    @Autowired
+    private com.waste.service.TransportDriverService transportDriverService;
+
+    @Autowired
     private SyncRecordMapper syncRecordMapper;
 
     @Autowired
@@ -134,6 +140,8 @@ public class SyncController {
         result.put("container", pullContainerData(enterpriseId, lastSyncTime));
         result.put("inventory", pullInventoryData(enterpriseId, lastSyncTime));
         result.put("warning", pullWarningData(enterpriseId, lastSyncTime));
+        result.put("vehicle", pullVehicleData(enterpriseId, lastSyncTime));
+        result.put("driver", pullDriverData(enterpriseId, lastSyncTime));
         result.put("syncTime", LocalDateTime.now());
 
         SyncRecord syncRecord = new SyncRecord();
@@ -589,6 +597,16 @@ public class SyncController {
         return warningRecordService.batchSyncList(enterpriseId);
     }
 
+    private List<SyncDataDTO.VehicleDTO> pullVehicleData(Long enterpriseId, LocalDateTime lastSyncTime) {
+        List<com.waste.entity.TransportVehicle> vehicleList = transportVehicleService.listForCache(enterpriseId);
+        return convertVehicleList(vehicleList);
+    }
+
+    private List<SyncDataDTO.DriverDTO> pullDriverData(Long enterpriseId, LocalDateTime lastSyncTime) {
+        List<com.waste.entity.TransportDriver> driverList = transportDriverService.listForCache(enterpriseId);
+        return convertDriverList(driverList);
+    }
+
     private LocalDateTime getlastSyncTimeFromParams(Map<String, Object> params) {
         if (params == null || params.get("lastSyncTime") == null) {
             return null;
@@ -630,6 +648,72 @@ public class SyncController {
             dto.setStatus(container.getStatus());
             dto.setLocation(container.getLocation());
             dto.setRfidCode(container.getRfidCode());
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private java.util.List<SyncDataDTO.VehicleDTO> convertVehicleList(java.util.List<com.waste.entity.TransportVehicle> vehicleList) {
+        java.util.List<SyncDataDTO.VehicleDTO> result = new java.util.ArrayList<>();
+        for (com.waste.entity.TransportVehicle vehicle : vehicleList) {
+            SyncDataDTO.VehicleDTO dto = new SyncDataDTO.VehicleDTO();
+            dto.setId(vehicle.getId());
+            dto.setVehicleNo(vehicle.getVehicleNo());
+            dto.setVehicleType(vehicle.getVehicleType());
+            dto.setVehicleModel(vehicle.getVehicleModel());
+            dto.setLoadWeight(vehicle.getLoadWeight());
+            dto.setLoadVolume(vehicle.getLoadVolume());
+            dto.setOwnerUnit(vehicle.getOwnerUnit());
+            dto.setOwnerUnitId(vehicle.getOwnerUnitId());
+            dto.setDriverId(vehicle.getDriverId());
+            dto.setDriverName(vehicle.getDriverName());
+            dto.setLicensePlateColor(vehicle.getLicensePlateColor());
+            dto.setRoadTransportLicense(vehicle.getRoadTransportLicense());
+            dto.setRoadTransportLicenseExpire(vehicle.getRoadTransportLicenseExpire());
+            dto.setVehicleLicenseExpire(vehicle.getVehicleLicenseExpire());
+            dto.setInsuranceExpire(vehicle.getInsuranceExpire());
+            dto.setInspectionExpire(vehicle.getInspectionExpire());
+            dto.setGpsTerminalId(vehicle.getGpsTerminalId());
+            dto.setGpsSimNo(vehicle.getGpsSimNo());
+            dto.setIsTrackEnabled(vehicle.getIsTrackEnabled());
+            dto.setAmapServiceId(vehicle.getAmapServiceId());
+            dto.setAmapTerminalId(vehicle.getAmapTerminalId());
+            dto.setAmapTrackName(vehicle.getAmapTrackName());
+            dto.setStatus(vehicle.getStatus());
+            dto.setRemark(vehicle.getRemark());
+            dto.setEnterpriseId(vehicle.getEnterpriseId());
+            result.add(dto);
+        }
+        return result;
+    }
+
+    private java.util.List<SyncDataDTO.DriverDTO> convertDriverList(java.util.List<com.waste.entity.TransportDriver> driverList) {
+        java.util.List<SyncDataDTO.DriverDTO> result = new java.util.ArrayList<>();
+        for (com.waste.entity.TransportDriver driver : driverList) {
+            SyncDataDTO.DriverDTO dto = new SyncDataDTO.DriverDTO();
+            dto.setId(driver.getId());
+            dto.setDriverName(driver.getDriverName());
+            dto.setGender(driver.getGender());
+            dto.setPhone(driver.getPhone());
+            dto.setIdCard(driver.getIdCard());
+            dto.setDriverLicense(driver.getDriverLicense());
+            dto.setDriverLicenseType(driver.getDriverLicenseType());
+            dto.setDriverLicenseExpire(driver.getDriverLicenseExpire());
+            dto.setQualificationCert(driver.getQualificationCert());
+            dto.setQualificationCertExpire(driver.getQualificationCertExpire());
+            dto.setHazardousCert(driver.getHazardousCert());
+            dto.setHazardousCertExpire(driver.getHazardousCertExpire());
+            dto.setEscortCert(driver.getEscortCert());
+            dto.setEscortCertExpire(driver.getEscortCertExpire());
+            dto.setWorkYears(driver.getWorkYears());
+            dto.setVehicleId(driver.getVehicleId());
+            dto.setVehicleNo(driver.getVehicleNo());
+            dto.setEmergencyContact(driver.getEmergencyContact());
+            dto.setEmergencyPhone(driver.getEmergencyPhone());
+            dto.setPhotoUrl(driver.getPhotoUrl());
+            dto.setStatus(driver.getStatus());
+            dto.setRemark(driver.getRemark());
+            dto.setEnterpriseId(driver.getEnterpriseId());
             result.add(dto);
         }
         return result;

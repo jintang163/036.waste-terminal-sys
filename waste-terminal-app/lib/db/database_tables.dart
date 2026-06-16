@@ -19,6 +19,10 @@ class DatabaseTables {
   static const String tableLocalRecordTask = 'local_record_task';
   static const String tableUserFace = 'user_face';
   static const String tableFaceAuthRecord = 'face_auth_record';
+  static const String tableTransportVehicle = 'transport_vehicle';
+  static const String tableTransportDriver = 'transport_driver';
+  static const String tableTransportTrack = 'transport_track';
+  static const String tableTransportTrackPoint = 'transport_track_point';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (
@@ -319,6 +323,119 @@ class DatabaseTables {
     )
   ''';
 
+  static const String createTableTransportVehicle = '''
+    CREATE TABLE $tableTransportVehicle (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vehicle_id TEXT,
+      vehicle_no TEXT,
+      vehicle_type TEXT,
+      vehicle_model TEXT,
+      load_weight REAL,
+      load_volume REAL,
+      owner_unit TEXT,
+      driver_id TEXT,
+      driver_name TEXT,
+      road_transport_license TEXT,
+      gps_terminal_id TEXT,
+      amap_terminal_id TEXT,
+      status INTEGER DEFAULT 0,
+      remark TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableTransportDriver = '''
+    CREATE TABLE $tableTransportDriver (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      driver_id TEXT,
+      driver_name TEXT,
+      gender TEXT,
+      phone TEXT,
+      id_card TEXT,
+      driver_license TEXT,
+      driver_license_type TEXT,
+      qualification_cert TEXT,
+      hazardous_cert TEXT,
+      work_years INTEGER,
+      vehicle_id TEXT,
+      vehicle_no TEXT,
+      emergency_contact TEXT,
+      emergency_phone TEXT,
+      photo_url TEXT,
+      status INTEGER DEFAULT 0,
+      remark TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableTransportTrack = '''
+    CREATE TABLE $tableTransportTrack (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_id TEXT,
+      track_no TEXT,
+      transfer_order_id TEXT,
+      transfer_order_no TEXT,
+      vehicle_id TEXT,
+      vehicle_no TEXT,
+      driver_id TEXT,
+      driver_name TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      start_location TEXT,
+      start_lng REAL,
+      start_lat REAL,
+      end_location TEXT,
+      end_lng REAL,
+      end_lat REAL,
+      current_location TEXT,
+      current_lng REAL,
+      current_lat REAL,
+      last_gps_time TEXT,
+      total_distance REAL,
+      total_duration INTEGER,
+      point_count INTEGER,
+      status INTEGER DEFAULT 0,
+      source_type TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      offline_points INTEGER DEFAULT 0,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
+  static const String createTableTransportTrackPoint = '''
+    CREATE TABLE $tableTransportTrackPoint (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      point_id TEXT,
+      point_no TEXT,
+      track_id TEXT,
+      track_no TEXT,
+      transfer_order_id TEXT,
+      vehicle_id TEXT,
+      vehicle_no TEXT,
+      driver_id TEXT,
+      lng REAL,
+      lat REAL,
+      location TEXT,
+      speed REAL,
+      direction REAL,
+      altitude REAL,
+      accuracy REAL,
+      gps_time TEXT,
+      source_type TEXT,
+      is_offline INTEGER DEFAULT 0,
+      synced INTEGER DEFAULT 0,
+      extra_data TEXT,
+      create_time TEXT
+    )
+  ''';
+
   static List<String> getAllCreateTableSql() {
     return [
       createTableWasteCatalog,
@@ -336,6 +453,10 @@ class DatabaseTables {
       createTableLocalRecordTask,
       createTableUserFace,
       createTableFaceAuthRecord,
+      createTableTransportVehicle,
+      createTableTransportDriver,
+      createTableTransportTrack,
+      createTableTransportTrackPoint,
     ];
   }
 }

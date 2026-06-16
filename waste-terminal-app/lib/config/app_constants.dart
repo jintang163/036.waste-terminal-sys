@@ -686,4 +686,30 @@ class ApiConstants {
   static const String faceAuthBatchAdd = '/face-auth/batch';
   static const String faceAuthByBusiness = '/face-auth/business';
   static const String faceAuthByUser = '/face-auth/user';
+
+  /// 运输车辆
+  static const String transportVehicleList = '/transport-vehicle/list';
+  static const String transportVehicleDetail = '/transport-vehicle/detail';
+  static const String transportVehiclePage = '/transport-vehicle/page';
+  static const String transportVehicleAdd = '/transport-vehicle/add';
+  static const String transportVehicleUpdate = '/transport-vehicle/update';
+  static const String transportVehicleSync = '/transport-vehicle/sync';
+
+  /// 驾驶员
+  static const String transportDriverList = '/transport-driver/list';
+  static const String transportDriverDetail = '/transport-driver/detail';
+  static const String transportDriverPage = '/transport-driver/page';
+  static const String transportDriverAdd = '/transport-driver/add';
+  static const String transportDriverUpdate = '/transport-driver/update';
+  static const String transportDriverSync = '/transport-driver/sync';
+
+  /// 运输轨迹
+  static const String transportTrackList = '/transport-track/list';
+  static const String transportTrackDetail = '/transport-track/detail';
+  static const String transportTrackPage = '/transport-track/page';
+  static const String transportTrackCreate = '/transport-track/create';
+  static const String transportTrackEnd = '/transport-track/end';
+  static const String transportTrackPoints = '/transport-track/points';
+  static const String transportTrackUploadPoint = '/transport-track/upload-point';
+  static const String transportTrackUploadPoints = '/transport-track/upload-points';
 }

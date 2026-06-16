@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:logger/logger.dart';
 
 import '../config/app_theme.dart';
 import '../config/app_config.dart';
@@ -16,6 +17,11 @@ import '../services/inventory_service.dart';
 import '../services/video_player_service.dart';
 import '../services/camera_service.dart';
 import '../services/face_auth_service.dart';
+import '../services/gps_service.dart';
+import '../services/api_service.dart';
+import '../db/transport_vehicle_db.dart';
+import '../db/transport_driver_db.dart';
+import '../db/transport_track_db.dart';
 import '../providers/app_provider.dart';
 import '../widgets/common_button.dart';
 import '../utils/toast_util.dart';
@@ -27,7 +33,11 @@ import '../models/transfer_order.dart';
 import '../models/waste_inventory.dart';
 import '../models/enterprise.dart';
 import '../models/camera_model.dart';
+import '../models/transport_vehicle.dart';
+import '../models/transport_driver.dart';
+import '../models/transport_track.dart';
 import 'face_verify_page.dart';
+import 'track_playback_page.dart';
 
 class WasteOutPage extends StatefulWidget {
   const WasteOutPage({super.key});
@@ -40,24 +50,37 @@ class _WasteOutPageState extends State<WasteOutPage> {
   final _formKey = GlobalKey<FormState>();
   final _containerCodeController = TextEditingController();
   final _weightController = TextEditingController();
-  final _vehicleNoController = TextEditingController();
-  final _driverNameController = TextEditingController();
-  final _driverPhoneController = TextEditingController();
   final _remarkController = TextEditingController();
   final _receiverSearchController = TextEditingController();
   final _transporterSearchController = TextEditingController();
+  final _vehicleSearchController = TextEditingController();
+  final _driverSearchController = TextEditingController();
+
+  final Logger _logger = Logger();
+  final TransportVehicleDb _vehicleDb = TransportVehicleDb();
+  final TransportDriverDb _driverDb = TransportDriverDb();
+  final TransportTrackDb _trackDb = TransportTrackDb();
+  final GpsService _gpsService = GpsService();
+  final ApiService _apiService = ApiService();
 
   WasteInventory? _currentInventory;
   Enterprise? _selectedReceiver;
   Enterprise? _selectedTransporter;
+  TransportVehicle? _selectedVehicle;
+  TransportDriver? _selectedDriver;
   List<Enterprise> _receiverList = [];
   List<Enterprise> _transporterList = [];
   List<Enterprise> _filteredReceiverList = [];
   List<Enterprise> _filteredTransporterList = [];
+  List<TransportVehicle> _vehicleList = [];
+  List<TransportVehicle> _filteredVehicleList = [];
+  List<TransportDriver> _driverList = [];
+  List<TransportDriver> _filteredDriverList = [];
   bool _isLoading = false;
   bool _isSaving = false;
   String? _generatedOrderNo;
   String? _generatedOutNo;
+  String? _generatedTrackNo;
 
   final VideoPlayerService _videoPlayerService = VideoPlayerService();
   final CameraService _cameraService = CameraService();
@@ -71,18 +94,18 @@ class _WasteOutPageState extends State<WasteOutPage> {
     super.initState();
     _loadEnterprises();
     _loadCameras();
+    _loadVehiclesAndDrivers();
   }
 
   @override
   void dispose() {
     _containerCodeController.dispose();
     _weightController.dispose();
-    _vehicleNoController.dispose();
-    _driverNameController.dispose();
-    _driverPhoneController.dispose();
     _remarkController.dispose();
     _receiverSearchController.dispose();
     _transporterSearchController.dispose();
+    _vehicleSearchController.dispose();
+    _driverSearchController.dispose();
     _videoPlayerService.disconnect();
     super.dispose();
   }
@@ -147,6 +170,78 @@ class _WasteOutPageState extends State<WasteOutPage> {
     } catch (e) {
       // 摄像头加载失败不影响主流程
     }
+  }
+
+  Future<void> _loadVehiclesAndDrivers() async {
+    try {
+      final vehicles = await _vehicleDb.queryByStatus(1);
+      final drivers = await _driverDb.queryByStatus(1);
+      setState(() {
+        _vehicleList = vehicles.map((e) => TransportVehicle.fromDbMap(e)).toList();
+        _filteredVehicleList = _vehicleList;
+        _driverList = drivers.map((e) => TransportDriver.fromDbMap(e)).toList();
+        _filteredDriverList = _driverList;
+      });
+      _logger.i('加载车辆${_vehicleList.length}辆，驾驶员${_driverList.length}名');
+    } catch (e) {
+      _logger.w('加载车辆驾驶员数据失败: $e');
+      ToastUtil.showWarning('车辆数据加载失败，将使用手动输入');
+    }
+  }
+
+  void _filterVehicles(String keyword) {
+    setState(() {
+      if (keyword.isEmpty) {
+        _filteredVehicleList = _vehicleList;
+      } else {
+        _filteredVehicleList = _vehicleList
+            .where((v) =>
+                (v.vehicleNo ?? '').contains(keyword) ||
+                (v.vehicleModel ?? '').contains(keyword))
+            .toList();
+      }
+    });
+  }
+
+  void _filterDrivers(String keyword) {
+    setState(() {
+      if (keyword.isEmpty) {
+        _filteredDriverList = _driverList;
+      } else {
+        _filteredDriverList = _driverList
+            .where((d) =>
+                (d.driverName ?? '').contains(keyword) ||
+                (d.phone ?? '').contains(keyword))
+            .toList();
+      }
+    });
+  }
+
+  void _onVehicleSelected(TransportVehicle vehicle) {
+    setState(() {
+      _selectedVehicle = vehicle;
+      _vehicleSearchController.text = '${vehicle.vehicleNo} - ${vehicle.vehicleModel ?? ''}';
+      if (vehicle.driverId != null) {
+        final matchedDriver = _driverList.firstWhere(
+          (d) => d.id == vehicle.driverId || d.driverId == vehicle.driverId.toString(),
+          orElse: () => _driverList.firstWhere(
+            (d) => d.vehicleId == vehicle.id || d.vehicleNo == vehicle.vehicleNo,
+            orElse: () => TransportDriver(),
+          ),
+        );
+        if (matchedDriver.driverName != null) {
+          _selectedDriver = matchedDriver;
+          _driverSearchController.text = '${matchedDriver.driverName} - ${matchedDriver.phone ?? ''}';
+        }
+      }
+    });
+  }
+
+  void _onDriverSelected(TransportDriver driver) {
+    setState(() {
+      _selectedDriver = driver;
+      _driverSearchController.text = '${driver.driverName} - ${driver.phone ?? ''}';
+    });
   }
 
   Future<void> _startRingBuffer() async {
@@ -329,6 +424,16 @@ class _WasteOutPageState extends State<WasteOutPage> {
       return;
     }
 
+    if (_vehicleList.isNotEmpty && _selectedVehicle == null) {
+      ToastUtil.showError('请选择运输车辆');
+      return;
+    }
+
+    if (_driverList.isNotEmpty && _selectedDriver == null) {
+      ToastUtil.showError('请选择驾驶员');
+      return;
+    }
+
     final weight = double.tryParse(_weightController.text);
     if (weight == null || weight <= 0) {
       ToastUtil.showError('请输入有效的出库重量');
@@ -409,6 +514,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
       final orderOfflineId = UuidUtil.generateOfflineId('TO');
       final now = DateTime.now();
 
+      final vehicleNo = _selectedVehicle?.vehicleNo ?? '';
+      final driverName = _selectedDriver?.driverName ?? '';
+      final driverPhone = _selectedDriver?.phone ?? '';
+
       final wasteOutRecord = WasteOutRecord(
         outNo: outNo,
         containerId: _currentInventory!.containerId,
@@ -421,9 +530,9 @@ class _WasteOutPageState extends State<WasteOutPage> {
         receiverUnitName: _selectedReceiver!.enterpriseName,
         transporterId: _selectedTransporter!.id,
         transporterName: _selectedTransporter!.enterpriseName,
-        vehicleNo: _vehicleNoController.text.trim(),
-        driverName: _driverNameController.text.trim(),
-        driverPhone: _driverPhoneController.text.trim(),
+        vehicleNo: vehicleNo,
+        driverName: driverName,
+        driverPhone: driverPhone,
         outTime: now,
         operatorId: appProvider.userInfo?['id'] as int?,
         operatorName: appProvider.username,
@@ -481,6 +590,37 @@ class _WasteOutPageState extends State<WasteOutPage> {
       final transferOrderService = TransferOrderService();
       await transferOrderService.createTransferOrder(transferOrder.toJson());
 
+      String? trackNo;
+      if (_selectedVehicle != null && _selectedDriver != null) {
+        try {
+          trackNo = await _createTransportTrack(
+            transferOrderId: orderOfflineId,
+            transferOrderNo: orderNo,
+            vehicle: _selectedVehicle!,
+            driver: _selectedDriver!,
+          );
+          _generatedTrackNo = trackNo;
+
+          final startPosition = await _gpsService.getCurrentPosition();
+          await _gpsService.startTracking(
+            trackId: trackNo,
+            transferOrderId: orderOfflineId,
+            transferOrderNo: orderNo,
+            vehicleId: _selectedVehicle!.id?.toString() ?? _selectedVehicle!.vehicleId ?? '',
+            vehicleNo: _selectedVehicle!.vehicleNo ?? '',
+            driverId: _selectedDriver!.id?.toString() ?? _selectedDriver!.driverId ?? '',
+            driverName: _selectedDriver!.driverName ?? '',
+            startLocation: startPosition?.location,
+            startLng: startPosition?.lng,
+            startLat: startPosition?.lat,
+          );
+          _logger.i('运输轨迹已创建，GPS追踪已启动: $trackNo');
+        } catch (e) {
+          _logger.w('创建运输轨迹失败: $e');
+          ToastUtil.showWarning('运输轨迹创建失败，不影响出库流程');
+        }
+      }
+
       setState(() {
         _generatedOutNo = outNo;
         _generatedOrderNo = orderNo;
@@ -498,6 +638,45 @@ class _WasteOutPageState extends State<WasteOutPage> {
       setState(() => _isSaving = false);
       ToastUtil.showError('保存失败: ${e.toString().replaceAll('Exception: ', '')}');
     }
+  }
+
+  Future<String> _createTransportTrack({
+    required String transferOrderId,
+    required String transferOrderNo,
+    required TransportVehicle vehicle,
+    required TransportDriver driver,
+  }) async {
+    final now = DateTime.now();
+    final trackNo = 'TRK${now.millisecondsSinceEpoch}';
+
+    final track = TransportTrack(
+      trackNo: trackNo,
+      transferOrderId: transferOrderId,
+      transferOrderNo: transferOrderNo,
+      vehicleId: vehicle.id?.toString() ?? vehicle.vehicleId ?? '',
+      vehicleNo: vehicle.vehicleNo ?? '',
+      driverId: driver.id?.toString() ?? driver.driverId ?? '',
+      driverName: driver.driverName ?? '',
+      startTime: now,
+      status: 1,
+      sourceType: 'app',
+      syncStatus: 0,
+      createTime: now,
+    );
+
+    await _trackDb.insert(track.toDbMap());
+
+    try {
+      final hasNetwork = await _apiService.isNetworkAvailable();
+      if (hasNetwork) {
+        await _apiService.createTransportTrack(track.toJson());
+        await _trackDb.updateSyncStatus(trackNo, 1, syncTime: now.toIso8601String());
+      }
+    } catch (e) {
+      _logger.w('同步轨迹到服务端失败，将在网络恢复后自动同步: $e');
+    }
+
+    return trackNo;
   }
 
   void _showResultDialog(TransferOrder order) {
@@ -548,6 +727,20 @@ class _WasteOutPageState extends State<WasteOutPage> {
           ),
         ),
         actions: [
+          if (_generatedTrackNo != null)
+            CommonButton(
+              text: '查看轨迹',
+              type: ButtonType.outline,
+              size: ButtonSize.small,
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                TrackPlaybackPage.show(
+                  context,
+                  trackId: _generatedTrackNo!,
+                  transferOrderNo: order.orderNo,
+                );
+              },
+            ),
           CommonButton(
             text: '打印出库单',
             type: ButtonType.outline,
@@ -597,18 +790,20 @@ class _WasteOutPageState extends State<WasteOutPage> {
   void _resetForm() {
     _containerCodeController.clear();
     _weightController.clear();
-    _vehicleNoController.clear();
-    _driverNameController.clear();
-    _driverPhoneController.clear();
     _remarkController.clear();
     _receiverSearchController.clear();
     _transporterSearchController.clear();
+    _vehicleSearchController.clear();
+    _driverSearchController.clear();
     setState(() {
       _currentInventory = null;
       _selectedReceiver = null;
       _selectedTransporter = null;
+      _selectedVehicle = null;
+      _selectedDriver = null;
       _generatedOrderNo = null;
       _generatedOutNo = null;
+      _generatedTrackNo = null;
     });
   }
 
@@ -660,6 +855,10 @@ class _WasteOutPageState extends State<WasteOutPage> {
                     _buildReceiverSection(),
                     SizedBox(height: 16.h),
                     _buildTransporterSection(),
+                    SizedBox(height: 16.h),
+                    _buildVehicleSection(),
+                    SizedBox(height: 16.h),
+                    _buildDriverSection(),
                     SizedBox(height: 16.h),
                     _buildWeightSection(),
                     SizedBox(height: 16.h),
@@ -891,74 +1090,348 @@ class _WasteOutPageState extends State<WasteOutPage> {
                     });
                   },
                 )),
-            SizedBox(height: 12.h),
-            TextFormField(
-              controller: _vehicleNoController,
-              decoration: InputDecoration(
-                labelText: '车牌号',
-                hintText: '请输入车牌号',
-                prefixIcon: Icon(Icons.directions_car, size: AppSize.iconSmall),
-              ),
-              inputFormatters: [
-                LengthLimitingTextInputFormatter(20),
-              ],
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return '请输入车牌号';
-                }
-                return null;
-              },
-            ),
-            SizedBox(height: 12.h),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleSection() {
+    return Card(
+      child: Padding(
+        padding: AppPadding.cardContent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _driverNameController,
-                    decoration: InputDecoration(
-                      labelText: '司机姓名',
-                      hintText: '请输入司机姓名',
-                      prefixIcon: Icon(Icons.person, size: AppSize.iconSmall),
-                    ),
-                    inputFormatters: [
-                      LengthLimitingTextInputFormatter(20),
-                    ],
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return '请输入司机姓名';
-                      }
-                      return null;
-                    },
+                Icon(Icons.directions_car, size: AppSize.iconMedium, color: AppTheme.accentColor),
+                SizedBox(width: 8.w),
+                Text('运输车辆', style: AppTextStyle.subtitle),
+                if (_vehicleList.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.only(left: 8.w),
+                    child: Text('(暂无缓存，请先同步数据)', style: AppTextStyle.caption.copyWith(color: AppTheme.warningColor)),
                   ),
-                ),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: TextFormField(
-                    controller: _driverPhoneController,
-                    decoration: InputDecoration(
-                      labelText: '司机电话',
-                      hintText: '请输入司机电话',
-                      prefixIcon: Icon(Icons.phone, size: AppSize.iconSmall),
-                    ),
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [
-                      LengthLimitingTextInputFormatter(15),
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return '请输入司机电话';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
               ],
+            ),
+            SizedBox(height: 12.h),
+            if (_vehicleList.isNotEmpty) ...[
+              TextFormField(
+                controller: _vehicleSearchController,
+                decoration: InputDecoration(
+                  labelText: '搜索车辆',
+                  hintText: '输入车牌号或车型搜索',
+                  prefixIcon: Icon(Icons.search, size: AppSize.iconSmall),
+                  suffixIcon: _selectedVehicle != null
+                      ? IconButton(
+                          icon: Icon(Icons.check_circle, color: AppTheme.successColor, size: AppSize.iconSmall),
+                          onPressed: null,
+                        )
+                      : null,
+                ),
+                onChanged: _filterVehicles,
+                validator: (value) {
+                  if (_selectedVehicle == null) {
+                    return '请选择运输车辆';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 8.h),
+              ..._filteredVehicleList.map((vehicle) => _buildVehicleOption(
+                    vehicle: vehicle,
+                    isSelected: _selectedVehicle?.id == vehicle.id || _selectedVehicle?.vehicleId == vehicle.vehicleId,
+                    onTap: () => _onVehicleSelected(vehicle),
+                  )),
+            ] else ...[
+              TextFormField(
+                decoration: InputDecoration(
+                  labelText: '车牌号',
+                  hintText: '请输入车牌号',
+                  prefixIcon: Icon(Icons.directions_car, size: AppSize.iconSmall),
+                ),
+                inputFormatters: [LengthLimitingTextInputFormatter(20)],
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return '请输入车牌号';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDriverSection() {
+    return Card(
+      child: Padding(
+        padding: AppPadding.cardContent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.person, size: AppSize.iconMedium, color: AppTheme.secondaryColor),
+                SizedBox(width: 8.w),
+                Text('驾驶员', style: AppTextStyle.subtitle),
+                if (_driverList.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.only(left: 8.w),
+                    child: Text('(暂无缓存，请先同步数据)', style: AppTextStyle.caption.copyWith(color: AppTheme.warningColor)),
+                  ),
+              ],
+            ),
+            SizedBox(height: 12.h),
+            if (_driverList.isNotEmpty) ...[
+              TextFormField(
+                controller: _driverSearchController,
+                decoration: InputDecoration(
+                  labelText: '搜索驾驶员',
+                  hintText: '输入姓名或电话搜索',
+                  prefixIcon: Icon(Icons.search, size: AppSize.iconSmall),
+                  suffixIcon: _selectedDriver != null
+                      ? IconButton(
+                          icon: Icon(Icons.check_circle, color: AppTheme.successColor, size: AppSize.iconSmall),
+                          onPressed: null,
+                        )
+                      : null,
+                ),
+                onChanged: _filterDrivers,
+                validator: (value) {
+                  if (_selectedDriver == null) {
+                    return '请选择驾驶员';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 8.h),
+              ..._filteredDriverList.map((driver) => _buildDriverOption(
+                    driver: driver,
+                    isSelected: _selectedDriver?.id == driver.id || _selectedDriver?.driverId == driver.driverId,
+                    onTap: () => _onDriverSelected(driver),
+                  )),
+            ] else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      decoration: InputDecoration(
+                        labelText: '司机姓名',
+                        hintText: '请输入司机姓名',
+                        prefixIcon: Icon(Icons.person, size: AppSize.iconSmall),
+                      ),
+                      inputFormatters: [LengthLimitingTextInputFormatter(20)],
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return '请输入司机姓名';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: TextFormField(
+                      decoration: InputDecoration(
+                        labelText: '司机电话',
+                        hintText: '请输入司机电话',
+                        prefixIcon: Icon(Icons.phone, size: AppSize.iconSmall),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: [
+                        LengthLimitingTextInputFormatter(15),
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return '请输入司机电话';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleOption({
+    required TransportVehicle vehicle,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.r8),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+        margin: EdgeInsets.only(bottom: 8.h),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : AppTheme.borderColor,
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.r8),
+          color: isSelected ? AppTheme.primaryColor.withOpacity(0.05) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: AppSize.iconMedium,
+              color: isSelected ? AppTheme.primaryColor : AppTheme.textHint,
+            ),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        vehicle.vehicleNo ?? '',
+                        style: AppTextStyle.body.copyWith(
+                          color: isSelected ? AppTheme.primaryColor : AppTheme.textPrimary,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+                        decoration: BoxDecoration(
+                          color: _getVehicleTypeColor(vehicle.vehicleType),
+                          borderRadius: BorderRadius.circular(4.r),
+                        ),
+                        child: Text(
+                          _getVehicleTypeName(vehicle.vehicleType),
+                          style: TextStyle(fontSize: 10.sp, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    '${vehicle.vehicleModel ?? ''} ${vehicle.loadWeight != null ? '载重${vehicle.loadWeight}吨' : ''}',
+                    style: AppTextStyle.small,
+                  ),
+                  if (vehicle.driverName != null) ...[
+                    SizedBox(height: 2.h),
+                    Text(
+                      '驾驶员: ${vehicle.driverName}',
+                      style: AppTextStyle.caption,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildDriverOption({
+    required TransportDriver driver,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.r8),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+        margin: EdgeInsets.only(bottom: 8.h),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : AppTheme.borderColor,
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.r8),
+          color: isSelected ? AppTheme.primaryColor.withOpacity(0.05) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: AppSize.iconMedium,
+              color: isSelected ? AppTheme.primaryColor : AppTheme.textHint,
+            ),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    driver.driverName ?? '',
+                    style: AppTextStyle.body.copyWith(
+                      color: isSelected ? AppTheme.primaryColor : AppTheme.textPrimary,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    '电话: ${driver.phone ?? '-'}',
+                    style: AppTextStyle.small,
+                  ),
+                  if (driver.vehicleNo != null || driver.workYears != null) ...[
+                    SizedBox(height: 2.h),
+                    Text(
+                      '${driver.vehicleNo != null ? '车辆: ${driver.vehicleNo}' : ''}${driver.workYears != null ? '  驾龄: ${driver.workYears}年' : ''}',
+                      style: AppTextStyle.caption,
+                    ),
+                  ],
+                  if (driver.hazardousCert != null) ...[
+                    SizedBox(height: 2.h),
+                    Row(
+                      children: [
+                        Icon(Icons.verified, size: 12.sp, color: AppTheme.successColor),
+                        SizedBox(width: 4.w),
+                        Text(
+                          '危运资格证',
+                          style: AppTextStyle.caption.copyWith(color: AppTheme.successColor),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getVehicleTypeColor(String? type) {
+    switch (type) {
+      case 'tank':
+        return AppTheme.dangerColor;
+      case 'box':
+        return AppTheme.infoColor;
+      case 'flat':
+        return AppTheme.warningColor;
+      default:
+        return AppTheme.textSecondary;
+    }
+  }
+
+  String _getVehicleTypeName(String? type) {
+    switch (type) {
+      case 'tank':
+        return '罐车';
+      case 'box':
+        return '厢式';
+      case 'flat':
+        return '平板';
+      default:
+        return '其他';
+    }
   }
 
   Widget _buildEnterpriseOption({
@@ -1199,18 +1672,5 @@ class _WasteOutPageState extends State<WasteOutPage> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _containerCodeController.dispose();
-    _weightController.dispose();
-    _vehicleNoController.dispose();
-    _driverNameController.dispose();
-    _driverPhoneController.dispose();
-    _remarkController.dispose();
-    _receiverSearchController.dispose();
-    _transporterSearchController.dispose();
-    super.dispose();
   }
 }

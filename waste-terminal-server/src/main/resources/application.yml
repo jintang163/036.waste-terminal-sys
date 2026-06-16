@@ -179,6 +179,16 @@ video:
     auto-cleanup-days: 30
     upload-retry-count: 3
 
+# 高德猎鹰GPS配置
+amap:
+  track:
+    key: your_amap_web_api_key
+    service-id: your_default_service_id
+    url: https://tsapi.amap.com/v1/track
+    connection-timeout: 10000
+    read-timeout: 30000
+    mock-enabled: true
+
 # Knife4j 配置
 knife4j:
   enable: true

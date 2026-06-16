@@ -1068,3 +1068,240 @@ CREATE TABLE waste_ledger_report_log (
 -- =============================================
 INSERT INTO data_version (data_type, version, version_time, change_summary, record_count, enterprise_id) VALUES
 ('WASTE_LEDGER', 1, NOW(), '初始化电子台账模块', 0, NULL);
+
+-- =============================================
+-- 28. 运输车辆资质表
+-- =============================================
+DROP TABLE IF EXISTS transport_vehicle;
+CREATE TABLE transport_vehicle (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '车辆ID',
+    vehicle_no VARCHAR(20) NOT NULL COMMENT '车牌号',
+    vehicle_type VARCHAR(30) COMMENT '车辆类型: tank-罐车 box-厢式 flat-平板 other-其他',
+    vehicle_model VARCHAR(50) COMMENT '车辆型号',
+    load_weight DECIMAL(10,2) COMMENT '核定载重(吨)',
+    load_volume DECIMAL(10,2) COMMENT '核定容积(立方米)',
+    owner_unit VARCHAR(200) COMMENT '所属单位',
+    owner_unit_id BIGINT COMMENT '所属单位ID',
+    driver_id BIGINT COMMENT '默认驾驶员ID',
+    driver_name VARCHAR(50) COMMENT '默认驾驶员姓名',
+    license_plate_color VARCHAR(20) COMMENT '车牌颜色: blue-蓝色 yellow-黄色 green-绿色',
+    road_transport_license VARCHAR(50) COMMENT '道路运输经营许可证号',
+    road_transport_license_expire DATE COMMENT '道路运输证有效期',
+    vehicle_license_expire DATE COMMENT '行驶证有效期',
+    insurance_expire DATE COMMENT '保险有效期',
+    inspection_expire DATE COMMENT '年检有效期',
+    gps_terminal_id VARCHAR(64) COMMENT 'GPS终端ID(高德猎鹰终端编号)',
+    gps_sim_no VARCHAR(30) COMMENT 'GPS终端SIM卡号',
+    is_track_enabled TINYINT DEFAULT 1 COMMENT '是否开启轨迹追踪: 0-否 1-是',
+    amap_service_id VARCHAR(64) COMMENT '高德猎鹰服务ID',
+    amap_terminal_id VARCHAR(64) COMMENT '高德猎鹰终端ID',
+    amap_track_name VARCHAR(100) COMMENT '高德猎鹰轨迹名称',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-正常 2-维修中 3-报废',
+    remark VARCHAR(500) COMMENT '备注',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_vehicle_no (vehicle_no),
+    KEY idx_gps_terminal_id (gps_terminal_id),
+    KEY idx_amap_terminal_id (amap_terminal_id),
+    KEY idx_owner_unit_id (owner_unit_id),
+    KEY idx_status (status),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运输车辆资质表';
+
+-- =============================================
+-- 29. 驾驶员资质表
+-- =============================================
+DROP TABLE IF EXISTS transport_driver;
+CREATE TABLE transport_driver (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '驾驶员ID',
+    driver_name VARCHAR(50) NOT NULL COMMENT '驾驶员姓名',
+    gender VARCHAR(10) COMMENT '性别',
+    phone VARCHAR(20) COMMENT '联系电话',
+    id_card VARCHAR(30) COMMENT '身份证号',
+    driver_license VARCHAR(30) COMMENT '驾驶证号',
+    driver_license_type VARCHAR(20) COMMENT '准驾车型: A1/A2/A3/B1/B2/C1/C2',
+    driver_license_expire DATE COMMENT '驾驶证有效期',
+    qualification_cert VARCHAR(50) COMMENT '从业资格证号',
+    qualification_cert_expire DATE COMMENT '从业资格证有效期',
+    hazardous_cert VARCHAR(50) COMMENT '危运资格证号',
+    hazardous_cert_expire DATE COMMENT '危运资格证有效期',
+    escort_cert VARCHAR(50) COMMENT '押运员证号',
+    escort_cert_expire DATE COMMENT '押运员证有效期',
+    work_years INT COMMENT '驾龄(年)',
+    vehicle_id BIGINT COMMENT '绑定车辆ID',
+    vehicle_no VARCHAR(20) COMMENT '绑定车牌号',
+    emergency_contact VARCHAR(50) COMMENT '紧急联系人',
+    emergency_phone VARCHAR(20) COMMENT '紧急联系电话',
+    photo_url VARCHAR(255) COMMENT '照片URL',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-正常 2-休假 3-离岗',
+    remark VARCHAR(500) COMMENT '备注',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_id_card (id_card),
+    KEY idx_phone (phone),
+    KEY idx_vehicle_id (vehicle_id),
+    KEY idx_status (status),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='驾驶员资质表';
+
+-- =============================================
+-- 30. 运输轨迹表
+-- =============================================
+DROP TABLE IF EXISTS transport_track;
+CREATE TABLE transport_track (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '轨迹ID',
+    track_no VARCHAR(64) NOT NULL COMMENT '轨迹编号',
+    transfer_order_id BIGINT COMMENT '转移联单ID',
+    transfer_order_no VARCHAR(50) COMMENT '转移联单编号',
+    vehicle_id BIGINT COMMENT '车辆ID',
+    vehicle_no VARCHAR(20) COMMENT '车牌号',
+    driver_id BIGINT COMMENT '驾驶员ID',
+    driver_name VARCHAR(50) COMMENT '驾驶员姓名',
+    amap_service_id VARCHAR(64) COMMENT '高德猎鹰服务ID',
+    amap_terminal_id VARCHAR(64) COMMENT '高德猎鹰终端ID',
+    amap_track_id VARCHAR(64) COMMENT '高德猎鹰轨迹ID',
+    start_time DATETIME COMMENT '运输开始时间',
+    end_time DATETIME COMMENT '运输结束时间',
+    start_location VARCHAR(200) COMMENT '起点位置',
+    start_lng DECIMAL(12,8) COMMENT '起点经度',
+    start_lat DECIMAL(12,8) COMMENT '起点纬度',
+    end_location VARCHAR(200) COMMENT '终点位置',
+    end_lng DECIMAL(12,8) COMMENT '终点经度',
+    end_lat DECIMAL(12,8) COMMENT '终点纬度',
+    current_location VARCHAR(200) COMMENT '当前位置',
+    current_lng DECIMAL(12,8) COMMENT '当前经度',
+    current_lat DECIMAL(12,8) COMMENT '当前纬度',
+    last_gps_time DATETIME COMMENT '最后GPS时间',
+    last_update_source VARCHAR(20) COMMENT '最后更新来源: app-终端上报 gps-猎鹰GPS offline-离线缓存',
+    total_distance DECIMAL(12,2) COMMENT '总里程(公里)',
+    total_duration INT COMMENT '总时长(分钟)',
+    point_count INT DEFAULT 0 COMMENT '轨迹点数量',
+    track_data LONGTEXT COMMENT '轨迹点数据(JSON数组)',
+    source_type VARCHAR(20) DEFAULT 'amap' COMMENT '轨迹来源: amap-高德猎鹰 app-终端采集',
+    status TINYINT DEFAULT 1 COMMENT '状态: 0-待开始 1-运输中 2-已完成 3-已暂停',
+    offline_points INT DEFAULT 0 COMMENT '离线缓存点数',
+    synced_to_amap TINYINT DEFAULT 0 COMMENT '是否已同步到高德: 0-否 1-是',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_track_no (track_no),
+    KEY idx_transfer_order_id (transfer_order_id),
+    KEY idx_vehicle_id (vehicle_id),
+    KEY idx_driver_id (driver_id),
+    KEY idx_amap_track_id (amap_track_id),
+    KEY idx_status (status),
+    KEY idx_start_time (start_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运输轨迹表';
+
+-- =============================================
+-- 31. 运输轨迹点明细表
+-- =============================================
+DROP TABLE IF EXISTS transport_track_point;
+CREATE TABLE transport_track_point (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '轨迹点ID',
+    point_no VARCHAR(64) NOT NULL COMMENT '轨迹点编号',
+    track_id BIGINT NOT NULL COMMENT '轨迹ID',
+    track_no VARCHAR(64) COMMENT '轨迹编号',
+    transfer_order_id BIGINT COMMENT '转移联单ID',
+    vehicle_id BIGINT COMMENT '车辆ID',
+    vehicle_no VARCHAR(20) COMMENT '车牌号',
+    driver_id BIGINT COMMENT '驾驶员ID',
+    lng DECIMAL(12,8) NOT NULL COMMENT '经度',
+    lat DECIMAL(12,8) NOT NULL COMMENT '纬度',
+    location VARCHAR(200) COMMENT '位置描述',
+    speed DECIMAL(10,2) COMMENT '速度(km/h)',
+    direction INT COMMENT '方向(0-360度)',
+    altitude DECIMAL(10,2) COMMENT '海拔(米)',
+    accuracy DECIMAL(10,2) COMMENT '精度(米)',
+    gps_time DATETIME NOT NULL COMMENT 'GPS时间',
+    source_type VARCHAR(20) DEFAULT 'amap' COMMENT '来源: amap-高德猎鹰 app-终端采集',
+    is_offline TINYINT DEFAULT 0 COMMENT '是否离线采集: 0-否 1-是',
+    synced TINYINT DEFAULT 0 COMMENT '是否已同步到服务端: 0-否 1-是',
+    synced_to_amap TINYINT DEFAULT 0 COMMENT '是否已同步到高德: 0-否 1-是',
+    extra_data TEXT COMMENT '扩展数据(JSON)',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_point_no (point_no),
+    KEY idx_track_id (track_id),
+    KEY idx_transfer_order_id (transfer_order_id),
+    KEY idx_vehicle_id (vehicle_id),
+    KEY idx_gps_time (gps_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运输轨迹点明细表';
+
+-- =============================================
+-- 32. 运输告警表
+-- =============================================
+DROP TABLE IF EXISTS transport_warning;
+CREATE TABLE transport_warning (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '告警ID',
+    warning_no VARCHAR(64) NOT NULL COMMENT '告警编号',
+    warning_type VARCHAR(30) NOT NULL COMMENT '告警类型: timeout-运输超时 speed-超速 off_route-偏离路线 offline-离线超时',
+    warning_level TINYINT NOT NULL DEFAULT 2 COMMENT '告警级别: 1-一般 2-较重 3-严重',
+    transfer_order_id BIGINT COMMENT '转移联单ID',
+    transfer_order_no VARCHAR(50) COMMENT '转移联单编号',
+    vehicle_id BIGINT COMMENT '车辆ID',
+    vehicle_no VARCHAR(20) COMMENT '车牌号',
+    driver_id BIGINT COMMENT '驾驶员ID',
+    driver_name VARCHAR(50) COMMENT '驾驶员姓名',
+    track_id BIGINT COMMENT '轨迹ID',
+    warning_content TEXT NOT NULL COMMENT '告警内容',
+    trigger_time DATETIME NOT NULL COMMENT '触发时间',
+    trigger_value VARCHAR(100) COMMENT '触发值',
+    threshold_value VARCHAR(100) COMMENT '阈值',
+    handle_status TINYINT DEFAULT 0 COMMENT '处理状态: 0-未处理 1-处理中 2-已处理 3-已忽略',
+    handle_user_id BIGINT COMMENT '处理人ID',
+    handle_user_name VARCHAR(50) COMMENT '处理人姓名',
+    handle_time DATETIME COMMENT '处理时间',
+    handle_remark VARCHAR(500) COMMENT '处理说明',
+    push_status TINYINT DEFAULT 0 COMMENT '推送状态: 0-未推送 1-已推送 2-推送失败',
+    push_time DATETIME COMMENT '推送时间',
+    push_fail_reason VARCHAR(500) COMMENT '推送失败原因',
+    warning_count INT DEFAULT 1 COMMENT '告警次数',
+    last_warning_time DATETIME COMMENT '最后告警时间',
+    enterprise_id BIGINT COMMENT '企业ID',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_warning_no (warning_no),
+    KEY idx_warning_type (warning_type),
+    KEY idx_warning_level (warning_level),
+    KEY idx_transfer_order_id (transfer_order_id),
+    KEY idx_vehicle_id (vehicle_id),
+    KEY idx_handle_status (handle_status),
+    KEY idx_trigger_time (trigger_time),
+    KEY idx_enterprise_id (enterprise_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运输告警表';
+
+-- =============================================
+-- 初始化运输模块配置数据
+-- =============================================
+INSERT INTO data_version (data_type, version, version_time, change_summary, record_count, enterprise_id) VALUES
+('VEHICLE', 1, NOW(), '初始化运输车辆模块', 0, NULL),
+('DRIVER', 1, NOW(), '初始化驾驶员模块', 0, NULL),
+('TRACK', 1, NOW(), '初始化运输轨迹模块', 0, NULL);
+
+-- =============================================
+-- 初始化示例车辆数据
+-- =============================================
+INSERT INTO transport_vehicle (vehicle_no, vehicle_type, vehicle_model, load_weight, owner_unit, road_transport_license, road_transport_license_expire, license_plate_color, gps_terminal_id, status, enterprise_id) VALUES
+('苏A12345', 'tank', '东风天龙', 25.00, '南京危运物流有限公司', '320100001234', '2027-12-31', 'yellow', 'GPS001', 1, 1),
+('苏A67890', 'box', '解放J6', 18.00, '南京危运物流有限公司', '320100001235', '2027-12-31', 'yellow', 'GPS002', 1, 1);
+
+-- =============================================
+-- 初始化示例驾驶员数据
+-- =============================================
+INSERT INTO transport_driver (driver_name, gender, phone, id_card, driver_license, driver_license_type, driver_license_expire, qualification_cert, qualification_cert_expire, hazardous_cert, hazardous_cert_expire, work_years, vehicle_id, vehicle_no, status, enterprise_id) VALUES
+('张三', '男', '13800138001', '320101198001011234', '320100123456', 'A2', '2030-12-31', '320100001234', '2027-12-31', '320100001234', '2027-12-31', 15, 1, '苏A12345', 1, 1),
+('李四', '男', '13800138002', '320101198501015678', '320100123457', 'A2', '2030-12-31', '320100001235', '2027-12-31', '320100001235', '2027-12-31', 10, 2, '苏A67890', 1, 1);

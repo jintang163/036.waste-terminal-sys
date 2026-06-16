@@ -25,6 +25,9 @@ import '../models/sys_file.dart';
 import '../models/sync_record.dart';
 import '../models/camera_model.dart';
 import '../models/ai_capture_event.dart';
+import '../models/transport_vehicle.dart';
+import '../models/transport_driver.dart';
+import '../models/transport_track.dart';
 import '../utils/logger_util.dart';
 import '../utils/sp_util.dart';
 
@@ -1451,6 +1454,157 @@ class ApiService {
       failedIds: (data['failedIds'] as List?)?.map((e) => e.toString()).toList() ?? [],
       messages: (data['messages'] as List?)?.cast<String>() ?? [],
     );
+  }
+
+  // ==================== 运输车辆API ====================
+
+  /// 获取车辆列表
+  Future<Response> getTransportVehicles({Map<String, dynamic>? params}) async {
+    return get(
+      ApiConstants.transportVehicleList,
+      queryParameters: params,
+    );
+  }
+
+  /// 分页获取车辆
+  Future<PageResult<TransportVehicle>> getTransportVehiclePage({
+    int pageNum = 1,
+    int pageSize = 10,
+    String? keyword,
+    int? status,
+    String? vehicleType,
+  }) async {
+    final response = await get(
+      ApiConstants.transportVehiclePage,
+      queryParameters: {
+        'pageNum': pageNum,
+        'pageSize': pageSize,
+        if (keyword != null) 'keyword': keyword,
+        if (status != null) 'status': status,
+        if (vehicleType != null) 'vehicleType': vehicleType,
+      },
+    );
+    return parsePage<TransportVehicle>(response, (e) => TransportVehicle.fromJson(e));
+  }
+
+  /// 获取车辆详情
+  Future<TransportVehicle?> getTransportVehicleDetail(int id) async {
+    final response = await get('${ApiConstants.transportVehicleDetail}/$id');
+    return parseData<TransportVehicle>(response, (e) => TransportVehicle.fromJson(e));
+  }
+
+  // ==================== 驾驶员API ====================
+
+  /// 获取驾驶员列表
+  Future<Response> getTransportDrivers({Map<String, dynamic>? params}) async {
+    return get(
+      ApiConstants.transportDriverList,
+      queryParameters: params,
+    );
+  }
+
+  /// 分页获取驾驶员
+  Future<PageResult<TransportDriver>> getTransportDriverPage({
+    int pageNum = 1,
+    int pageSize = 10,
+    String? keyword,
+    int? status,
+    String? vehicleId,
+  }) async {
+    final response = await get(
+      ApiConstants.transportDriverPage,
+      queryParameters: {
+        'pageNum': pageNum,
+        'pageSize': pageSize,
+        if (keyword != null) 'keyword': keyword,
+        if (status != null) 'status': status,
+        if (vehicleId != null) 'vehicleId': vehicleId,
+      },
+    );
+    return parsePage<TransportDriver>(response, (e) => TransportDriver.fromJson(e));
+  }
+
+  /// 获取驾驶员详情
+  Future<TransportDriver?> getTransportDriverDetail(int id) async {
+    final response = await get('${ApiConstants.transportDriverDetail}/$id');
+    return parseData<TransportDriver>(response, (e) => TransportDriver.fromJson(e));
+  }
+
+  // ==================== 运输轨迹API ====================
+
+  /// 上报单个轨迹点
+  Future<Response> uploadTrackPoint(Map<String, dynamic> data) async {
+    return post(
+      ApiConstants.transportTrackUploadPoint,
+      data: data,
+    );
+  }
+
+  /// 批量上报轨迹点
+  Future<Response> uploadTrackPoints(List<Map<String, dynamic>> data) async {
+    return post(
+      ApiConstants.transportTrackUploadPoints,
+      data: data,
+    );
+  }
+
+  /// 获取轨迹点列表
+  Future<Response> getTrackPoints(String trackId) async {
+    return get(
+      ApiConstants.transportTrackPoints,
+      queryParameters: {'trackId': trackId},
+    );
+  }
+
+  /// 创建运输轨迹
+  Future<Response> createTransportTrack(Map<String, dynamic> data) async {
+    return post(
+      ApiConstants.transportTrackCreate,
+      data: data,
+    );
+  }
+
+  /// 结束运输轨迹
+  Future<Response> endTransportTrack(String trackId, Map<String, dynamic> data) async {
+    return post(
+      '${ApiConstants.transportTrackEnd}/$trackId',
+      data: data,
+    );
+  }
+
+  /// 获取轨迹列表
+  Future<PageResult<TransportTrack>> getTransportTrackPage({
+    int pageNum = 1,
+    int pageSize = 10,
+    String? vehicleId,
+    String? driverId,
+    String? transferOrderId,
+    int? status,
+    String? startTime,
+    String? endTime,
+  }) async {
+    final response = await get(
+      ApiConstants.transportTrackPage,
+      queryParameters: {
+        'pageNum': pageNum,
+        'pageSize': pageSize,
+        if (vehicleId != null) 'vehicleId': vehicleId,
+        if (driverId != null) 'driverId': driverId,
+        if (transferOrderId != null) 'transferOrderId': transferOrderId,
+        if (status != null) 'status': status,
+        if (startTime != null) 'startTime': startTime,
+        if (endTime != null) 'endTime': endTime,
+      },
+    );
+    return parsePage<TransportTrack>(response, (e) => TransportTrack.fromJson(e));
+  }
+
+  /// 获取轨迹详情
+  Future<TransportTrack?> getTransportTrackDetail(String trackId) async {
+    final response = await get(
+      '${ApiConstants.transportTrackDetail}/$trackId',
+    );
+    return parseData<TransportTrack>(response, (e) => TransportTrack.fromJson(e));
   }
 
   /// 释放资源

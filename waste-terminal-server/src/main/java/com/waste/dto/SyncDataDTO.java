@@ -32,6 +32,10 @@ public class SyncDataDTO {
 
     private List<WasteCatalogDTO> wasteCatalogs;
 
+    private List<VehicleDTO> vehicles;
+
+    private List<DriverDTO> drivers;
+
     @Data
     public static class WasteContainerDTO {
         private Long id;
@@ -60,5 +64,61 @@ public class SyncDataDTO {
         private String description;
         private Integer sortOrder;
         private Integer status;
+    }
+
+    @Data
+    public static class VehicleDTO {
+        private Long id;
+        private String vehicleNo;
+        private String vehicleType;
+        private String vehicleModel;
+        private java.math.BigDecimal loadWeight;
+        private java.math.BigDecimal loadVolume;
+        private String ownerUnit;
+        private Long ownerUnitId;
+        private Long driverId;
+        private String driverName;
+        private String licensePlateColor;
+        private String roadTransportLicense;
+        private LocalDateTime roadTransportLicenseExpire;
+        private LocalDateTime vehicleLicenseExpire;
+        private LocalDateTime insuranceExpire;
+        private LocalDateTime inspectionExpire;
+        private String gpsTerminalId;
+        private String gpsSimNo;
+        private Integer isTrackEnabled;
+        private String amapServiceId;
+        private String amapTerminalId;
+        private String amapTrackName;
+        private Integer status;
+        private String remark;
+        private Long enterpriseId;
+    }
+
+    @Data
+    public static class DriverDTO {
+        private Long id;
+        private String driverName;
+        private String gender;
+        private String phone;
+        private String idCard;
+        private String driverLicense;
+        private String driverLicenseType;
+        private LocalDateTime driverLicenseExpire;
+        private String qualificationCert;
+        private LocalDateTime qualificationCertExpire;
+        private String hazardousCert;
+        private LocalDateTime hazardousCertExpire;
+        private String escortCert;
+        private LocalDateTime escortCertExpire;
+        private Integer workYears;
+        private Long vehicleId;
+        private String vehicleNo;
+        private String emergencyContact;
+        private String emergencyPhone;
+        private String photoUrl;
+        private Integer status;
+        private String remark;
+        private Long enterpriseId;
     }
 }
