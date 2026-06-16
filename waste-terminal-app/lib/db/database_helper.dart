@@ -77,6 +77,34 @@ class DatabaseHelper {
       await batch.commit(noResult: true);
       _logger.i('数据库升级到v4完成，已添加活体检测和同步字段');
     }
+    if (oldVersion < 5) {
+      Batch batch = db.batch();
+      batch.execute(DatabaseTables.createTableTransportVehicle);
+      batch.execute(DatabaseTables.createTableTransportDriver);
+      batch.execute(DatabaseTables.createTableTransportTrack);
+      batch.execute(DatabaseTables.createTableTransportTrackPoint);
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v5完成，已添加运输车辆/驾驶员/轨迹相关表');
+    }
+    if (oldVersion < 6) {
+      Batch batch = db.batch();
+      try {
+        batch.execute(
+          'ALTER TABLE ${DatabaseTables.tableTransportTrack} ADD COLUMN expected_duration_hours REAL DEFAULT 24.0',
+        );
+      } catch (e) {
+        _logger.w('添加列 expected_duration_hours 失败(可能已存在): $e');
+      }
+      try {
+        batch.execute(
+          'ALTER TABLE ${DatabaseTables.tableTransportTrack} ADD COLUMN expected_arrival_time TEXT',
+        );
+      } catch (e) {
+        _logger.w('添加列 expected_arrival_time 失败(可能已存在): $e');
+      }
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v6完成，已添加运输预计到达时长字段');
+    }
   }
 
   Future<void> _onDowngrade(Database db, int oldVersion, int newVersion) async {

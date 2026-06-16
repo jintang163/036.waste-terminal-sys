@@ -70,6 +70,10 @@ public class TransportTrack extends BaseEntity {
 
     private Integer totalDuration;
 
+    private BigDecimal expectedDurationHours;
+
+    private LocalDateTime expectedArrivalTime;
+
     private Integer pointCount;
 
     private String trackData;

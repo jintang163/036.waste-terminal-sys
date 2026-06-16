@@ -1551,8 +1551,14 @@ class ApiService {
   /// 获取轨迹点列表
   Future<Response> getTrackPoints(String trackId) async {
     return get(
-      ApiConstants.transportTrackPoints,
-      queryParameters: {'trackId': trackId},
+      '${ApiConstants.transportTrackPoints}/$trackId',
+    );
+  }
+
+  /// 轨迹回放（优先使用高德猎鹰轨迹数据）
+  Future<Response> replayTrack(String trackId) async {
+    return get(
+      '${ApiConstants.transportTrackReplay}/$trackId',
     );
   }
 

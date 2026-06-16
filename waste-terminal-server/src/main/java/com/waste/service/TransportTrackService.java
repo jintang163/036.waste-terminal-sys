@@ -24,6 +24,8 @@ public interface TransportTrackService {
 
     List<TransportTrackPoint> getTrackPoints(Long trackId);
 
+    List<TransportTrackPoint> replayTrack(Long trackId);
+
     TransportTrack getCurrentTrack(Long vehicleId, Long enterpriseId);
 
     void syncOfflinePoints(Long trackId);

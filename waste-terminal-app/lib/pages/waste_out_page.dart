@@ -55,6 +55,9 @@ class _WasteOutPageState extends State<WasteOutPage> {
   final _transporterSearchController = TextEditingController();
   final _vehicleSearchController = TextEditingController();
   final _driverSearchController = TextEditingController();
+  final _expectedDurationController =
+      TextEditingController(text: '24');
+  double _expectedDurationHours = 24.0;
 
   final Logger _logger = Logger();
   final TransportVehicleDb _vehicleDb = TransportVehicleDb();
@@ -106,6 +109,7 @@ class _WasteOutPageState extends State<WasteOutPage> {
     _transporterSearchController.dispose();
     _vehicleSearchController.dispose();
     _driverSearchController.dispose();
+    _expectedDurationController.dispose();
     _videoPlayerService.disconnect();
     super.dispose();
   }
@@ -658,6 +662,14 @@ class _WasteOutPageState extends State<WasteOutPage> {
       driverId: driver.id?.toString() ?? driver.driverId ?? '',
       driverName: driver.driverName ?? '',
       startTime: now,
+      expectedDurationHours: _expectedDurationHours > 0
+          ? _expectedDurationHours
+          : 24.0,
+      expectedArrivalTime: _expectedDurationHours > 0
+          ? now.add(Duration(
+              milliseconds:
+                  (_expectedDurationHours * 3600 * 1000).round()))
+          : now.add(const Duration(hours: 24)),
       status: 1,
       sourceType: 'app',
       syncStatus: 0,
@@ -1257,6 +1269,74 @@ class _WasteOutPageState extends State<WasteOutPage> {
                 ],
               ),
             ],
+            SizedBox(height: 20.h),
+            Text('预计到达时长', style: AppTextStyle.subtitle),
+            SizedBox(height: 10.h),
+            TextFormField(
+              controller: _expectedDurationController,
+              decoration: InputDecoration(
+                labelText: '预计到达时长（小时）',
+                hintText: '请输入预计到达时长',
+                prefixIcon: Icon(Icons.timer, size: AppSize.iconSmall),
+                suffixText: '小时',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'^\d*\.?\d{0,2}$'),
+                ),
+              ],
+              onChanged: (value) {
+                final parsed = double.tryParse(value.trim());
+                if (parsed != null && parsed > 0) {
+                  _expectedDurationHours = parsed;
+                }
+              },
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return '请输入预计到达时长';
+                }
+                final parsed = double.tryParse(value.trim());
+                if (parsed == null || parsed <= 0) {
+                  return '请输入有效的时长';
+                }
+                if (parsed > 720) {
+                  return '预计时长不能超过720小时(30天)';
+                }
+                return null;
+              },
+            ),
+            SizedBox(height: 10.h),
+            Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: [2.0, 6.0, 12.0, 24.0, 48.0, 72.0]
+                  .map((hours) => ChoiceChip(
+                        label: Text(
+                          '${hours.truncate()}小时',
+                          style: AppTextStyle.caption.copyWith(
+                            color: _expectedDurationHours == hours
+                                ? Colors.white
+                                : AppTheme.textSecondary,
+                          ),
+                        ),
+                        selected: _expectedDurationHours == hours,
+                        selectedColor: AppTheme.primaryColor,
+                        backgroundColor: AppTheme.bgSecondary,
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() {
+                              _expectedDurationHours = hours;
+                              _expectedDurationController.text =
+                                  hours.truncate().toString();
+                            });
+                          }
+                        },
+                      ))
+                  .toList(),
+            ),
           ],
         ),
       ),

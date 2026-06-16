@@ -24,8 +24,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -96,6 +100,10 @@ public class TransportTrackServiceImpl implements TransportTrackService {
         track.setTotalDuration(0);
         track.setOfflinePoints(0);
         track.setSyncedToAmap(0);
+        if (track.getExpectedDurationHours() == null
+                || track.getExpectedDurationHours().compareTo(BigDecimal.ZERO) <= 0) {
+            track.setExpectedDurationHours(BigDecimal.valueOf(24));
+        }
         if (enterpriseId != null) {
             track.setEnterpriseId(enterpriseId);
         }
@@ -131,6 +139,14 @@ public class TransportTrackServiceImpl implements TransportTrackService {
             track.setStartTime(LocalDateTime.now());
         }
         track.setStatus(1);
+        if (track.getExpectedDurationHours() == null
+                || track.getExpectedDurationHours().compareTo(BigDecimal.ZERO) <= 0) {
+            track.setExpectedDurationHours(BigDecimal.valueOf(24));
+        }
+        if (track.getExpectedArrivalTime() == null && track.getStartTime() != null) {
+            long hoursToAdd = Math.max(1L, track.getExpectedDurationHours().longValue());
+            track.setExpectedArrivalTime(track.getStartTime().plusHours(hoursToAdd));
+        }
         transportTrackMapper.updateById(track);
 
         if (StrUtil.isNotBlank(track.getAmapServiceId()) && StrUtil.isNotBlank(track.getAmapTerminalId())) {
@@ -228,6 +244,140 @@ public class TransportTrackServiceImpl implements TransportTrackService {
         wrapper.eq(TransportTrackPoint::getTrackId, trackId);
         wrapper.orderByAsc(TransportTrackPoint::getGpsTime);
         return transportTrackPointMapper.selectList(wrapper);
+    }
+
+    @Override
+    public List<TransportTrackPoint> replayTrack(Long trackId) {
+        TransportTrack track = getById(trackId);
+        if (track == null) {
+            return new ArrayList<>();
+        }
+
+        List<TransportTrackPoint> amapPoints = fetchAmapTrackPoints(track);
+        if (CollUtil.isNotEmpty(amapPoints)) {
+            log.info("轨迹回放使用高德猎鹰数据, trackId={}, 点数={}", trackId, amapPoints.size());
+            return amapPoints;
+        }
+
+        log.info("轨迹回放使用本地数据库数据, trackId={}", trackId);
+        return getTrackPoints(trackId);
+    }
+
+    private List<TransportTrackPoint> fetchAmapTrackPoints(TransportTrack track) {
+        List<TransportTrackPoint> result = new ArrayList<>();
+        if (StrUtil.isBlank(track.getAmapServiceId())
+                || StrUtil.isBlank(track.getAmapTerminalId())) {
+            return result;
+        }
+
+        try {
+            Long startTime = null;
+            Long endTime = null;
+            if (track.getStartTime() != null) {
+                startTime = track.getStartTime().atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+            }
+            if (track.getEndTime() != null) {
+                endTime = track.getEndTime().atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+            }
+
+            List<Map<String, Object>> amapPoints;
+            if (StrUtil.isNotBlank(track.getAmapTrackId())) {
+                amapPoints = amapTrackService.queryTrack(
+                        track.getAmapServiceId(),
+                        track.getAmapTerminalId(),
+                        track.getAmapTrackId(),
+                        startTime,
+                        endTime
+                );
+            } else {
+                amapPoints = amapTrackService.queryTerminalTrack(
+                        track.getAmapServiceId(),
+                        track.getAmapTerminalId(),
+                        startTime,
+                        endTime
+                );
+            }
+
+            if (CollUtil.isNotEmpty(amapPoints)) {
+                int seq = 0;
+                for (Map<String, Object> pointMap : amapPoints) {
+                    TransportTrackPoint point = convertAmapPoint(pointMap, track, ++seq);
+                    if (point != null) {
+                        result.add(point);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("从高德猎鹰获取轨迹数据异常, trackId={}", track.getId(), e);
+        }
+        return result;
+    }
+
+    private TransportTrackPoint convertAmapPoint(Map<String, Object> pointMap, TransportTrack track, int seq) {
+        try {
+            TransportTrackPoint point = new TransportTrackPoint();
+            point.setPointNo("AMAP" + track.getId() + "_" + seq);
+            point.setTrackId(track.getId());
+            point.setTrackNo(track.getTrackNo());
+            point.setTransferOrderId(track.getTransferOrderId());
+            point.setVehicleId(track.getVehicleId());
+            point.setVehicleNo(track.getVehicleNo());
+            point.setDriverId(track.getDriverId());
+            point.setSourceType("AMAP");
+            point.setIsOffline(0);
+            point.setSynced(1);
+            point.setSyncedToAmap(1);
+            point.setEnterpriseId(track.getEnterpriseId());
+
+            Object lng = pointMap.get("x");
+            Object lat = pointMap.get("y");
+            if (lng != null) {
+                point.setLng(new BigDecimal(lng.toString()));
+            }
+            if (lat != null) {
+                point.setLat(new BigDecimal(lat.toString()));
+            }
+
+            Object locTime = pointMap.get("locTime");
+            if (locTime != null) {
+                long time = Long.parseLong(locTime.toString());
+                if (time > 10000000000L) {
+                    time = time / 1000;
+                }
+                point.setGpsTime(LocalDateTime.ofInstant(Instant.ofEpochSecond(time), ZoneId.systemDefault()));
+            } else {
+                Object time = pointMap.get("time");
+                if (time != null) {
+                    long t = Long.parseLong(time.toString());
+                    if (t > 10000000000L) {
+                        t = t / 1000;
+                    }
+                    point.setGpsTime(LocalDateTime.ofInstant(Instant.ofEpochSecond(t), ZoneId.systemDefault()));
+                }
+            }
+
+            Object speed = pointMap.get("speed");
+            if (speed != null) {
+                point.setSpeed(new BigDecimal(speed.toString()));
+            }
+            Object direction = pointMap.get("direction");
+            if (direction != null) {
+                point.setDirection(Integer.parseInt(direction.toString()));
+            }
+            Object height = pointMap.get("height");
+            if (height != null) {
+                point.setAltitude(new BigDecimal(height.toString()));
+            }
+            Object accuracy = pointMap.get("accuracy");
+            if (accuracy != null) {
+                point.setAccuracy(new BigDecimal(accuracy.toString()));
+            }
+
+            return point;
+        } catch (Exception e) {
+            log.warn("转换高德猎鹰轨迹点失败, data={}", pointMap, e);
+            return null;
+        }
     }
 
     @Override

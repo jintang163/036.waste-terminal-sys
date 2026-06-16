@@ -175,6 +175,13 @@ class AppConfig {
   /// 是否启用数据加密
   static const bool enableDataEncryption = false;
 
+  // ==================== 高德地图配置 ====================
+  /// 高德地图 Android Key
+  static const String amapAndroidKey = 'your_amap_android_key_here';
+
+  /// 高德地图 iOS Key
+  static const String amapIosKey = 'your_amap_ios_key_here';
+
   /// 应用主题色
   static const Color primaryColor = Color(0xFF1976D2);
 

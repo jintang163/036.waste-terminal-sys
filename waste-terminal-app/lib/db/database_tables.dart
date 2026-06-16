@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 4;
+  static const int dbVersion = 6;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -398,6 +398,8 @@ class DatabaseTables {
       total_distance REAL,
       total_duration INTEGER,
       point_count INTEGER,
+      expected_duration_hours REAL DEFAULT 24.0,
+      expected_arrival_time TEXT,
       status INTEGER DEFAULT 0,
       source_type TEXT,
       sync_status INTEGER DEFAULT 0,

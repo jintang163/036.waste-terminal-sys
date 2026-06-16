@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:logger/logger.dart';
+import 'package:amap_flutter_map/amap_flutter_map.dart';
+import 'package:amap_flutter_base/amap_flutter_base.dart';
 
 import '../config/app_theme.dart';
 import '../config/app_config.dart';
@@ -58,13 +59,28 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
   TransportDriver? _driver;
   List<TrackPoint> _trackPoints = [];
 
+  AMapController? _mapController;
+  PolylineId? _fullPolylineId;
+  PolylineId? _playedPolylineId;
+  MarkerId? _startMarkerId;
+  MarkerId? _endMarkerId;
+  MarkerId? _currentMarkerId;
+  final Map<PolylineId, Polyline> _polylines = {};
+  final Map<MarkerId, Marker> _markers = {};
+
   bool _isLoading = true;
   bool _isPlaying = false;
   int _currentPointIndex = 0;
   double _playbackSpeed = 1.0;
   Timer? _playbackTimer;
+  bool _dataFromAmap = false;
 
   final List<double> _playbackSpeeds = [0.5, 1.0, 2.0, 5.0, 10.0];
+
+  static const AMapApiKey _apiKey = AMapApiKey(
+    androidKey: AppConfig.amapAndroidKey,
+    iosKey: AppConfig.amapIosKey,
+  );
 
   @override
   void initState() {
@@ -75,6 +91,7 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
   @override
   void dispose() {
     _stopPlayback();
+    _mapController?.dispose();
     super.dispose();
   }
 
@@ -85,6 +102,9 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
         _loadTrackInfo(),
         _loadTrackPoints(),
       ]);
+      if (_trackPoints.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _setupMapElements());
+      }
     } catch (e) {
       _logger.e('加载轨迹数据失败: $e');
       ToastUtil.showError('加载轨迹数据失败');
@@ -147,9 +167,25 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
 
   Future<void> _loadTrackPoints() async {
     try {
+      final response = await _apiService.replayTrack(widget.trackId);
+      final dynamic data = response.data['data'];
+      if (data is List && data.isNotEmpty) {
+        _trackPoints = data.map((e) => TrackPoint.fromJson(Map<String, dynamic>.from(e))).toList();
+        _dataFromAmap = _trackPoints.any((p) => p.sourceType == 'AMAP');
+        _logger.i('轨迹回放加载点数: ${_trackPoints.length}, 数据源: ${_dataFromAmap ? "高德猎鹰" : "本地数据库"}');
+        return;
+      }
+      _logger.w('服务端回放接口无数据，尝试普通轨迹点接口');
+    } catch (e) {
+      _logger.w('从回放接口加载轨迹点失败: $e');
+    }
+
+    try {
       final response = await _apiService.getTrackPoints(widget.trackId);
-      final List<dynamic> data = response.data['data'] ?? [];
-      _trackPoints = data.map((e) => TrackPoint.fromJson(Map<String, dynamic>.from(e))).toList();
+      final dynamic data = response.data['data'];
+      if (data is List) {
+        _trackPoints = data.map((e) => TrackPoint.fromJson(Map<String, dynamic>.from(e))).toList();
+      }
     } catch (e) {
       _logger.w('从API加载轨迹点失败，尝试从本地加载: $e');
       await _loadLocalTrackPoints();
@@ -166,6 +202,194 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
     }
   }
 
+  void _onMapCreated(AMapController controller) {
+    _mapController = controller;
+    if (_trackPoints.isNotEmpty) {
+      _setupMapElements();
+    }
+  }
+
+  void _setupMapElements() {
+    if (_mapController == null || _trackPoints.isEmpty) return;
+
+    _clearMapElements();
+
+    final allPoints = _trackPoints
+        .where((p) => p.lng != null && p.lat != null)
+        .map((p) => LatLng(p.lat!, p.lng!))
+        .toList();
+
+    if (allPoints.length < 2) {
+      _moveCameraToPoint(allPoints.isNotEmpty ? allPoints.first : const LatLng(39.90923, 116.397428));
+      return;
+    }
+
+    final fullPolyline = Polyline(
+      points: allPoints,
+      color: AppTheme.primaryColor.withOpacity(0.5),
+      width: 6,
+      joinType: JoinType.round,
+      capType: CapType.round,
+    );
+    _fullPolylineId = fullPolyline.id;
+    _polylines[_fullPolylineId!] = fullPolyline;
+
+    final playedPoints = allPoints.sublist(0, (_currentPointIndex + 1).clamp(1, allPoints.length));
+    final playedPolyline = Polyline(
+      points: playedPoints,
+      color: AppTheme.successColor,
+      width: 7,
+      joinType: JoinType.round,
+      capType: CapType.round,
+      zIndex: 1,
+    );
+    _playedPolylineId = playedPolyline.id;
+    _polylines[_playedPolylineId!] = playedPolyline;
+
+    final startMarker = Marker(
+      position: allPoints.first,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      infoWindow: InfoWindow(title: '起点', snippet: _trackPoints.first.gpsTime != null
+          ? DateUtil.formatDateTime(_trackPoints.first.gpsTime!)
+          : null),
+      anchor: const Offset(0.5, 1.0),
+    );
+    _startMarkerId = startMarker.id;
+    _markers[_startMarkerId!] = startMarker;
+
+    final endMarker = Marker(
+      position: allPoints.last,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      infoWindow: InfoWindow(title: '终点', snippet: _trackPoints.last.gpsTime != null
+          ? DateUtil.formatDateTime(_trackPoints.last.gpsTime!)
+          : null),
+      anchor: const Offset(0.5, 1.0),
+    );
+    _endMarkerId = endMarker.id;
+    _markers[_endMarkerId!] = endMarker;
+
+    final currentIndex = _currentPointIndex.clamp(0, allPoints.length - 1);
+    final currentMarker = Marker(
+      position: allPoints[currentIndex],
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      infoWindow: InfoWindow(
+        title: '当前位置',
+        snippet: _buildCurrentSnippet(currentIndex),
+      ),
+      anchor: const Offset(0.5, 1.0),
+      zIndex: 2,
+    );
+    _currentMarkerId = currentMarker.id;
+    _markers[_currentMarkerId!] = currentMarker;
+
+    _mapController?.addPolylines(_polylines.values.toSet());
+    _mapController?.addMarkers(_markers.values.toSet());
+
+    _moveCameraToIncludeAllPoints(allPoints);
+  }
+
+  String _buildCurrentSnippet(int index) {
+    final point = index < _trackPoints.length ? _trackPoints[index] : null;
+    if (point == null) return '';
+    final parts = <String>[];
+    if (point.gpsTime != null) parts.add(DateUtil.formatDateTime(point.gpsTime!));
+    if (point.speed != null) parts.add('${_formatSpeed(point.speed)}');
+    return parts.join('  ');
+  }
+
+  void _clearMapElements() {
+    if (_mapController == null) return;
+    if (_fullPolylineId != null) _mapController!.removePolyline(_fullPolylineId!);
+    if (_playedPolylineId != null) _mapController!.removePolyline(_playedPolylineId!);
+    if (_startMarkerId != null) _mapController!.removeMarker(_startMarkerId!);
+    if (_endMarkerId != null) _mapController!.removeMarker(_endMarkerId!);
+    if (_currentMarkerId != null) _mapController!.removeMarker(_currentMarkerId!);
+    _polylines.clear();
+    _markers.clear();
+  }
+
+  void _moveCameraToIncludeAllPoints(List<LatLng> points) {
+    if (_mapController == null || points.isEmpty) return;
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    final latDelta = maxLat - minLat;
+    final lngDelta = maxLng - minLng;
+    final padding = 0.01;
+    final target = LatLngBounds(
+      southwest: LatLng(minLat - padding, minLng - padding),
+      northeast: LatLng(maxLat + padding, maxLng + padding),
+    );
+    final cameraUpdate = CameraUpdate.newLatLngBounds(target, 80.0);
+    _mapController!.moveCamera(cameraUpdate);
+  }
+
+  void _moveCameraToPoint(LatLng point) {
+    _mapController?.moveCamera(CameraUpdate.newLatLngZoom(point, 15.0));
+  }
+
+  void _updatePlaybackPosition() {
+    if (_mapController == null || _trackPoints.isEmpty) return;
+
+    final validPoints = _trackPoints
+        .where((p) => p.lng != null && p.lat != null)
+        .toList();
+    if (validPoints.length < 2) return;
+
+    final maxIndex = validPoints.length - 1;
+    final idx = _currentPointIndex.clamp(0, maxIndex);
+    final playedCount = (idx + 1).clamp(1, validPoints.length);
+
+    final playedPoints = validPoints
+        .sublist(0, playedCount)
+        .map((p) => LatLng(p.lat!, p.lng!))
+        .toList();
+
+    if (_playedPolylineId != null) {
+      _mapController!.removePolyline(_playedPolylineId!);
+    }
+    final updatedPlayed = Polyline(
+      id: _playedPolylineId ?? const PolylineId('played_temp'),
+      points: playedPoints,
+      color: AppTheme.successColor,
+      width: 7,
+      joinType: JoinType.round,
+      capType: CapType.round,
+      zIndex: 1,
+    );
+    _playedPolylineId = updatedPlayed.id;
+    _polylines[_playedPolylineId!] = updatedPlayed;
+    _mapController!.addPolyline(updatedPlayed);
+
+    final currentPos = LatLng(validPoints[idx].lat!, validPoints[idx].lng!);
+    if (_currentMarkerId != null) {
+      _mapController!.removeMarker(_currentMarkerId!);
+    }
+    final updatedMarker = Marker(
+      id: _currentMarkerId ?? const MarkerId('current_temp'),
+      position: currentPos,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      infoWindow: InfoWindow(
+        title: '当前位置',
+        snippet: _buildCurrentSnippet(_currentPointIndex),
+      ),
+      anchor: const Offset(0.5, 1.0),
+      zIndex: 2,
+    );
+    _currentMarkerId = updatedMarker.id;
+    _markers[_currentMarkerId!] = updatedMarker;
+    _mapController!.addMarker(updatedMarker);
+
+    _mapController!.moveCamera(CameraUpdate.newLatLng(currentPos));
+  }
+
   void _startPlayback() {
     if (_trackPoints.isEmpty || _isPlaying) return;
 
@@ -177,6 +401,7 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
           setState(() {
             _currentPointIndex++;
           });
+          _updatePlaybackPosition();
         } else {
           _stopPlayback();
           ToastUtil.showInfo('轨迹回放完成');
@@ -197,6 +422,7 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
     _playbackTimer?.cancel();
     _playbackTimer = null;
     _currentPointIndex = 0;
+    _updatePlaybackPosition();
     setState(() {});
   }
 
@@ -215,6 +441,14 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
       _startPlayback();
     }
     setState(() {});
+  }
+
+  void _onSliderChanged(double value) {
+    final newIndex = (value * (_trackPoints.length - 1)).round();
+    setState(() {
+      _currentPointIndex = newIndex;
+    });
+    _updatePlaybackPosition();
   }
 
   String _formatDuration(int? seconds) {
@@ -256,7 +490,10 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
           if (_track != null)
             IconButton(
               icon: const Icon(Icons.refresh),
-              onPressed: _loadTrackData,
+              onPressed: () {
+                _stopPlayback();
+                _loadTrackData();
+              },
               tooltip: '刷新',
             ),
         ],
@@ -303,6 +540,7 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
 
     return Column(
       children: [
+        _buildMapCard(),
         Expanded(
           child: SingleChildScrollView(
             padding: EdgeInsets.all(16.w),
@@ -311,18 +549,140 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
               children: [
                 _buildTrackInfoCard(),
                 SizedBox(height: 16.h),
-                _buildMapCard(),
-                SizedBox(height: 16.h),
                 _buildCurrentPointInfo(currentPoint),
                 SizedBox(height: 16.h),
                 _buildStatsCard(),
-                SizedBox(height: 100.h),
+                SizedBox(height: 140.h),
               ],
             ),
           ),
         ),
         _buildPlaybackControls(),
       ],
+    );
+  }
+
+  Widget _buildMapCard() {
+    return SizedBox(
+      height: 280.h,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          AMapWidget(
+            apiKey: _apiKey,
+            onMapCreated: _onMapCreated,
+            initialCameraPosition: const CameraPosition(
+              target: LatLng(39.90923, 116.397428),
+              zoom: 14,
+            ),
+            myLocationButtonEnabled: false,
+            compassEnabled: true,
+            scaleEnabled: true,
+            zoomGesturesEnabled: true,
+            scrollGesturesEnabled: true,
+            tiltGesturesEnabled: false,
+            rotateGesturesEnabled: false,
+            polylines: Set<Polyline>.of(_polylines.values),
+            markers: Set<Marker>.of(_markers.values),
+          ),
+          Positioned(
+            top: 12.h,
+            left: 12.w,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(6.r),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _dataFromAmap ? Icons.satellite : Icons.storage,
+                    size: 12.sp,
+                    color: Colors.white,
+                  ),
+                  SizedBox(width: 4.w),
+                  Text(
+                    _dataFromAmap ? '高德猎鹰' : '本地数据',
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_trackPoints.isNotEmpty)
+            Positioned(
+              bottom: 12.h,
+              left: 12.w,
+              right: 12.w,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(8.r),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 3,
+                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7),
+                        overlayShape: RoundSliderOverlayShape(overlayRadius: 14),
+                      ),
+                      child: Slider(
+                        value: _trackPoints.length > 1
+                            ? _currentPointIndex / (_trackPoints.length - 1)
+                            : 0.0,
+                        onChanged: _onSliderChanged,
+                        activeColor: AppTheme.primaryColor,
+                        inactiveColor: AppTheme.borderColor,
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _trackPoints.first.gpsTime != null
+                                ? DateUtil.formatTime(_trackPoints.first.gpsTime!)
+                                : '--:--:--',
+                            style: AppTextStyle.caption,
+                          ),
+                          Text(
+                            '${_currentPointIndex + 1} / ${_trackPoints.length}',
+                            style: AppTextStyle.caption.copyWith(
+                              color: AppTheme.primaryColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            _trackPoints.last.gpsTime != null
+                                ? DateUtil.formatTime(_trackPoints.last.gpsTime!)
+                                : '--:--:--',
+                            style: AppTextStyle.caption,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -407,148 +767,6 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
               fontWeight: FontWeight.w500,
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMapCard() {
-    return Card(
-      child: Padding(
-        padding: AppPadding.cardContent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.map_outlined,
-                  size: AppSize.iconMedium,
-                  color: AppTheme.secondaryColor,
-                ),
-                SizedBox(width: 8.w),
-                Text(
-                  '轨迹线路',
-                  style: AppTextStyle.subtitle,
-                ),
-                SizedBox(width: 8.w),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
-                  decoration: BoxDecoration(
-                    color: _isPlaying
-                        ? AppTheme.successColor.withOpacity(0.1)
-                        : AppTheme.textHint.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4.r),
-                  ),
-                  child: Text(
-                    _isPlaying ? '播放中' : '已暂停',
-                    style: TextStyle(
-                      fontSize: 10.sp,
-                      color: _isPlaying ? AppTheme.successColor : AppTheme.textHint,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 12.h),
-            _trackPoints.isEmpty
-                ? _buildEmptyMap()
-                : _buildTrackMap(),
-            SizedBox(height: 8.h),
-            _buildProgressBar(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyMap() {
-    return Container(
-      height: 200.h,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppTheme.bgSecondary,
-        borderRadius: BorderRadius.circular(AppRadius.r8),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.location_off_outlined,
-            size: 48.sp,
-            color: AppTheme.textHint,
-          ),
-          SizedBox(height: 8.h),
-          Text(
-            '暂无轨迹点数据',
-            style: AppTextStyle.bodySecondary,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTrackMap() {
-    return Container(
-      height: 200.h,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppTheme.bgSecondary,
-        borderRadius: BorderRadius.circular(AppRadius.r8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.r8),
-        child: CustomPaint(
-          size: Size(double.infinity, 200.h),
-          painter: TrackMapPainter(
-            points: _trackPoints,
-            currentIndex: _currentPointIndex,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressBar() {
-    if (_trackPoints.isEmpty) return const SizedBox.shrink();
-
-    final progress = _trackPoints.length > 1
-        ? _currentPointIndex / (_trackPoints.length - 1)
-        : 0.0;
-
-    return Column(
-      children: [
-        Slider(
-          value: progress,
-          onChanged: (value) {
-            final newIndex = (value * (_trackPoints.length - 1)).round();
-            setState(() {
-              _currentPointIndex = newIndex;
-            });
-          },
-          activeColor: AppTheme.primaryColor,
-          inactiveColor: AppTheme.borderColor,
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              _trackPoints.first.gpsTime != null
-                  ? DateUtil.formatDateTime(_trackPoints.first.gpsTime!)
-                  : '--:--:--',
-              style: AppTextStyle.caption,
-            ),
-            Text(
-              '${_currentPointIndex + 1} / ${_trackPoints.length}',
-              style: AppTextStyle.caption,
-            ),
-            Text(
-              _trackPoints.last.gpsTime != null
-                  ? DateUtil.formatDateTime(_trackPoints.last.gpsTime!)
-                  : '--:--:--',
-              style: AppTextStyle.caption,
-            ),
-          ],
         ),
       ],
     );
@@ -724,7 +942,7 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
                 Expanded(
                   child: _buildBigStatItem(
                     '总里程',
-                    _formatDistance(_track?.totalDistance),
+                    _formatDistance(_track?.totalDistance?.toDouble()),
                     Icons.route_outlined,
                     AppTheme.primaryColor,
                   ),
@@ -884,185 +1102,5 @@ class _TrackPlaybackPageState extends State<TrackPlaybackPage> {
         ),
       ),
     );
-  }
-}
-
-class TrackMapPainter extends CustomPainter {
-  final List<TrackPoint> points;
-  final int currentIndex;
-
-  TrackMapPainter({
-    required this.points,
-    required this.currentIndex,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-
-    final latitudes = points.map((p) => p.lat ?? 0.0).toList();
-    final longitudes = points.map((p) => p.lng ?? 0.0).toList();
-
-    final minLat = latitudes.reduce(min);
-    final maxLat = latitudes.reduce(max);
-    final minLng = longitudes.reduce(min);
-    final maxLng = longitudes.reduce(max);
-
-    final latRange = maxLat - minLat;
-    final lngRange = maxLng - minLng;
-
-    const padding = 20.0;
-    final mapWidth = size.width - padding * 2;
-    final mapHeight = size.height - padding * 2;
-
-    double xMapper(double lng) {
-      if (lngRange == 0) return mapWidth / 2 + padding;
-      return ((lng - minLng) / lngRange) * mapWidth + padding;
-    }
-
-    double yMapper(double lat) {
-      if (latRange == 0) return mapHeight / 2 + padding;
-      return mapHeight - ((lat - minLat) / latRange) * mapHeight + padding;
-    }
-
-    final bgPaint = Paint()
-      ..color = AppTheme.bgPrimary
-      ..style = PaintingStyle.fill;
-
-    final bgRect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(AppRadius.r8),
-    );
-    canvas.drawRRect(bgRect, bgPaint);
-
-    final gridPaint = Paint()
-      ..color = AppTheme.borderColor.withOpacity(0.5)
-      ..strokeWidth = 1;
-
-    const gridCount = 4;
-    for (var i = 0; i <= gridCount; i++) {
-      final x = padding + (mapWidth / gridCount) * i;
-      final y = padding + (mapHeight / gridCount) * i;
-
-      canvas.drawLine(
-        Offset(x, padding),
-        Offset(x, size.height - padding),
-        gridPaint,
-      );
-      canvas.drawLine(
-        Offset(padding, y),
-        Offset(size.width - padding, y),
-        gridPaint,
-      );
-    }
-
-    final trackPaint = Paint()
-      ..color = AppTheme.primaryColor.withOpacity(0.6)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final trackPath = Path();
-    for (var i = 0; i < points.length; i++) {
-      final x = xMapper(points[i].lng ?? 0.0);
-      final y = yMapper(points[i].lat ?? 0.0);
-
-      if (i == 0) {
-        trackPath.moveTo(x, y);
-      } else {
-        trackPath.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(trackPath, trackPaint);
-
-    final playedPaint = Paint()
-      ..color = AppTheme.successColor
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final playedPath = Path();
-    for (var i = 0; i <= currentIndex && i < points.length; i++) {
-      final x = xMapper(points[i].lng ?? 0.0);
-      final y = yMapper(points[i].lat ?? 0.0);
-
-      if (i == 0) {
-        playedPath.moveTo(x, y);
-      } else {
-        playedPath.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(playedPath, playedPaint);
-
-    final startPaint = Paint()
-      ..color = AppTheme.successColor
-      ..style = PaintingStyle.fill;
-    final startX = xMapper(points.first.lng ?? 0.0);
-    final startY = yMapper(points.first.lat ?? 0.0);
-    canvas.drawCircle(Offset(startX, startY), 8, startPaint);
-    canvas.drawCircle(Offset(startX, startY), 4, Paint()..color = Colors.white);
-
-    final endPaint = Paint()
-      ..color = AppTheme.dangerColor
-      ..style = PaintingStyle.fill;
-    final endX = xMapper(points.last.lng ?? 0.0);
-    final endY = yMapper(points.last.lat ?? 0.0);
-    canvas.drawCircle(Offset(endX, endY), 8, endPaint);
-    canvas.drawCircle(Offset(endX, endY), 4, Paint()..color = Colors.white);
-
-    if (currentIndex >= 0 && currentIndex < points.length) {
-      final currentPaint = Paint()
-        ..color = AppTheme.primaryColor
-        ..style = PaintingStyle.fill;
-      final currentX = xMapper(points[currentIndex].lng ?? 0.0);
-      final currentY = yMapper(points[currentIndex].lat ?? 0.0);
-
-      final pulsePaint = Paint()
-        ..color = AppTheme.primaryColor.withOpacity(0.3)
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset(currentX, currentY), 16, pulsePaint);
-      canvas.drawCircle(Offset(currentX, currentY), 10, currentPaint);
-      canvas.drawCircle(Offset(currentX, currentY), 5, Paint()..color = Colors.white);
-    }
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-
-    textPainter.text = TextSpan(
-      text: '起',
-      style: TextStyle(
-        color: AppTheme.successColor,
-        fontSize: 10.sp,
-        fontWeight: FontWeight.bold,
-      ),
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(startX + 10, startY - 20),
-    );
-
-    textPainter.text = TextSpan(
-      text: '终',
-      style: TextStyle(
-        color: AppTheme.dangerColor,
-        fontSize: 10.sp,
-        fontWeight: FontWeight.bold,
-      ),
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(endX + 10, endY - 20),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant TrackMapPainter oldDelegate) {
-    return currentIndex != oldDelegate.currentIndex ||
-        points.length != oldDelegate.points.length;
   }
 }

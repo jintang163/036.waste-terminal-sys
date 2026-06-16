@@ -61,6 +61,10 @@ public class TransportTrackDTO {
 
     private Integer totalDuration;
 
+    private BigDecimal expectedDurationHours;
+
+    private LocalDateTime expectedArrivalTime;
+
     private Integer pointCount;
 
     private String trackData;

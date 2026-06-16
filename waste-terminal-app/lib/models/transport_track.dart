@@ -23,6 +23,8 @@ class TransportTrack {
   final double? totalDistance;
   final int? totalDuration;
   final int? pointCount;
+  final double? expectedDurationHours;
+  final DateTime? expectedArrivalTime;
   final int? status;
   final String? sourceType;
   final int? syncStatus;
@@ -57,6 +59,8 @@ class TransportTrack {
     this.totalDistance,
     this.totalDuration,
     this.pointCount,
+    this.expectedDurationHours,
+    this.expectedArrivalTime,
     this.status,
     this.sourceType,
     this.syncStatus,
@@ -99,6 +103,11 @@ class TransportTrack {
       totalDistance: (json['totalDistance'] as num?)?.toDouble(),
       totalDuration: json['totalDuration'] as int?,
       pointCount: json['pointCount'] as int?,
+      expectedDurationHours:
+          (json['expectedDurationHours'] as num?)?.toDouble(),
+      expectedArrivalTime: json['expectedArrivalTime'] != null
+          ? DateTime.tryParse(json['expectedArrivalTime'] as String)
+          : null,
       status: json['status'] as int?,
       sourceType: json['sourceType'] as String?,
       syncStatus: json['syncStatus'] as int?,
@@ -142,6 +151,8 @@ class TransportTrack {
       'totalDistance': totalDistance,
       'totalDuration': totalDuration,
       'pointCount': pointCount,
+      'expectedDurationHours': expectedDurationHours,
+      'expectedArrivalTime': expectedArrivalTime?.toIso8601String(),
       'status': status,
       'sourceType': sourceType,
       'syncStatus': syncStatus,
@@ -185,6 +196,11 @@ class TransportTrack {
       totalDistance: (map['total_distance'] as num?)?.toDouble(),
       totalDuration: map['total_duration'] as int?,
       pointCount: map['point_count'] as int?,
+      expectedDurationHours:
+          (map['expected_duration_hours'] as num?)?.toDouble(),
+      expectedArrivalTime: map['expected_arrival_time'] != null
+          ? DateTime.tryParse(map['expected_arrival_time'] as String)
+          : null,
       status: map['status'] as int?,
       sourceType: map['source_type'] as String?,
       syncStatus: map['sync_status'] as int?,
@@ -228,6 +244,8 @@ class TransportTrack {
       'total_distance': totalDistance,
       'total_duration': totalDuration,
       'point_count': pointCount,
+      'expected_duration_hours': expectedDurationHours,
+      'expected_arrival_time': expectedArrivalTime?.toIso8601String(),
       'status': status,
       'source_type': sourceType,
       'sync_status': syncStatus,
@@ -264,6 +282,8 @@ class TransportTrack {
     double? totalDistance,
     int? totalDuration,
     int? pointCount,
+    double? expectedDurationHours,
+    DateTime? expectedArrivalTime,
     int? status,
     String? sourceType,
     int? syncStatus,
@@ -298,6 +318,9 @@ class TransportTrack {
       totalDistance: totalDistance ?? this.totalDistance,
       totalDuration: totalDuration ?? this.totalDuration,
       pointCount: pointCount ?? this.pointCount,
+      expectedDurationHours:
+          expectedDurationHours ?? this.expectedDurationHours,
+      expectedArrivalTime: expectedArrivalTime ?? this.expectedArrivalTime,
       status: status ?? this.status,
       sourceType: sourceType ?? this.sourceType,
       syncStatus: syncStatus ?? this.syncStatus,

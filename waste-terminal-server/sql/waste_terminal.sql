@@ -1181,6 +1181,8 @@ CREATE TABLE transport_track (
     last_update_source VARCHAR(20) COMMENT '最后更新来源: app-终端上报 gps-猎鹰GPS offline-离线缓存',
     total_distance DECIMAL(12,2) COMMENT '总里程(公里)',
     total_duration INT COMMENT '总时长(分钟)',
+    expected_duration_hours DECIMAL(8,2) DEFAULT 24.00 COMMENT '预计到达时长(小时)，默认24小时',
+    expected_arrival_time DATETIME COMMENT '预计到达时间',
     point_count INT DEFAULT 0 COMMENT '轨迹点数量',
     track_data LONGTEXT COMMENT '轨迹点数据(JSON数组)',
     source_type VARCHAR(20) DEFAULT 'amap' COMMENT '轨迹来源: amap-高德猎鹰 app-终端采集',
@@ -1305,3 +1307,9 @@ INSERT INTO transport_vehicle (vehicle_no, vehicle_type, vehicle_model, load_wei
 INSERT INTO transport_driver (driver_name, gender, phone, id_card, driver_license, driver_license_type, driver_license_expire, qualification_cert, qualification_cert_expire, hazardous_cert, hazardous_cert_expire, work_years, vehicle_id, vehicle_no, status, enterprise_id) VALUES
 ('张三', '男', '13800138001', '320101198001011234', '320100123456', 'A2', '2030-12-31', '320100001234', '2027-12-31', '320100001234', '2027-12-31', 15, 1, '苏A12345', 1, 1),
 ('李四', '男', '13800138002', '320101198501015678', '320100123457', 'A2', '2030-12-31', '320100001235', '2027-12-31', '320100001235', '2027-12-31', 10, 2, '苏A67890', 1, 1);
+
+-- =============================================
+-- 老版本升级脚本: 运输轨迹表增加预计到达时长字段
+-- =============================================
+-- ALTER TABLE transport_track ADD COLUMN expected_duration_hours DECIMAL(8,2) DEFAULT 24.00 COMMENT '预计到达时长(小时)';
+-- ALTER TABLE transport_track ADD COLUMN expected_arrival_time DATETIME COMMENT '预计到达时间';

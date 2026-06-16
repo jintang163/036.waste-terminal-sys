@@ -132,12 +132,34 @@ public class TransportWarningServiceImpl implements TransportWarningService {
         LocalDateTime now = LocalDateTime.now();
         for (TransportTrack track : activeTracks) {
             try {
-                Duration duration = Duration.between(track.getStartTime(), now);
-                long hours = duration.toHours();
+                BigDecimal thresholdHours = resolveThresholdHours(track);
+                boolean isTimeoutByDuration = false;
+                boolean isTimeoutByArrival = false;
+                long hoursElapsed = 0;
+                String timeoutReason = "";
 
-                if (hours >= 24) {
-                    BigDecimal threshold = new BigDecimal(24);
-                    boolean existingWarning = checkExistingWarning(track.getId(), "TIMEOUT", threshold);
+                if (track.getExpectedArrivalTime() != null) {
+                    if (now.isAfter(track.getExpectedArrivalTime())) {
+                        isTimeoutByArrival = true;
+                        Duration d = Duration.between(track.getExpectedArrivalTime(), now);
+                        hoursElapsed = Math.max(1L, d.toHours());
+                        timeoutReason = "超过预计到达时间" + hoursElapsed + "小时";
+                    }
+                }
+
+                if (!isTimeoutByArrival && track.getStartTime() != null) {
+                    Duration duration = Duration.between(track.getStartTime(), now);
+                    hoursElapsed = duration.toHours();
+                    BigDecimal elapsed = BigDecimal.valueOf(hoursElapsed);
+                    if (elapsed.compareTo(thresholdHours) >= 0) {
+                        isTimeoutByDuration = true;
+                        timeoutReason = "运输时长已达" + hoursElapsed + "小时，超过预计"
+                                + (thresholdHours.compareTo(BigDecimal.valueOf(24)) == 0 ? "默认24小时" : thresholdHours.stripTrailingZeros().toPlainString() + "小时");
+                    }
+                }
+
+                if (isTimeoutByDuration || isTimeoutByArrival) {
+                    boolean existingWarning = checkExistingWarning(track.getId(), "TIMEOUT", thresholdHours);
 
                     if (!existingWarning) {
                         TransportWarning warning = new TransportWarning();
@@ -151,10 +173,10 @@ public class TransportWarningServiceImpl implements TransportWarningService {
                         warning.setDriverId(track.getDriverId());
                         warning.setDriverName(track.getDriverName());
                         warning.setTrackId(track.getId());
-                        warning.setWarningContent("运输任务已超时，已运输" + hours + "小时");
+                        warning.setWarningContent("运输任务已超时，" + timeoutReason);
                         warning.setTriggerTime(now);
-                        warning.setTriggerValue(new BigDecimal(hours));
-                        warning.setThresholdValue(threshold);
+                        warning.setTriggerValue(BigDecimal.valueOf(hoursElapsed));
+                        warning.setThresholdValue(thresholdHours);
                         warning.setHandleStatus(0);
                         warning.setPushStatus(0);
                         warning.setWarningCount(1);
@@ -169,10 +191,10 @@ public class TransportWarningServiceImpl implements TransportWarningService {
                         }
 
                         warnings.add(warning);
-                        log.info("生成运输超时告警, trackId={}, trackNo={}, duration={}h",
-                                track.getId(), track.getTrackNo(), hours);
+                        log.info("生成运输超时告警, trackId={}, trackNo={}, 已用时长={}h, 阈值={}h",
+                                track.getId(), track.getTrackNo(), hoursElapsed, thresholdHours);
                     } else {
-                        incrementWarningCount(track.getId(), "TIMEOUT", threshold);
+                        incrementWarningCount(track.getId(), "TIMEOUT", thresholdHours);
                     }
                 }
             } catch (Exception e) {
@@ -182,6 +204,14 @@ public class TransportWarningServiceImpl implements TransportWarningService {
 
         log.info("运输超时检测完成，生成{}条告警", warnings.size());
         return warnings;
+    }
+
+    private BigDecimal resolveThresholdHours(TransportTrack track) {
+        if (track.getExpectedDurationHours() != null
+                && track.getExpectedDurationHours().compareTo(BigDecimal.ZERO) > 0) {
+            return track.getExpectedDurationHours();
+        }
+        return BigDecimal.valueOf(24);
     }
 
     private boolean checkExistingWarning(Long trackId, String warningType, BigDecimal thresholdValue) {

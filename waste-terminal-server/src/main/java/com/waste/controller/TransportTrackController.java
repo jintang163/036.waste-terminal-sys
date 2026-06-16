@@ -80,7 +80,7 @@ public class TransportTrackController {
     @GetMapping("/replay/{trackId}")
     @RequiresLogin
     public Result<List<TransportTrackPoint>> replayTrack(@PathVariable Long trackId) {
-        List<TransportTrackPoint> points = transportTrackService.getTrackPoints(trackId);
+        List<TransportTrackPoint> points = transportTrackService.replayTrack(trackId);
         return Result.success(points);
     }
 

@@ -710,6 +710,7 @@ class ApiConstants {
   static const String transportTrackCreate = '/transport-track/create';
   static const String transportTrackEnd = '/transport-track/end';
   static const String transportTrackPoints = '/transport-track/points';
+  static const String transportTrackReplay = '/transport-track/replay';
   static const String transportTrackUploadPoint = '/transport-track/upload-point';
   static const String transportTrackUploadPoints = '/transport-track/upload-points';
 }
