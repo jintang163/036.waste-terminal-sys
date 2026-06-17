@@ -7,8 +7,10 @@ import '../config/app_theme.dart';
 import '../config/app_routes.dart';
 import '../models/carbon_footprint_record.dart';
 import '../providers/carbon_footprint_provider.dart';
+import '../providers/sync_provider.dart';
 import '../services/carbon_footprint_service.dart';
 import '../utils/date_util.dart';
+import '../utils/toast_util.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/stat_card.dart';
 
@@ -27,6 +29,7 @@ class _CarbonFootprintReportPageState extends State<CarbonFootprintReportPage>
 
   int _selectedTimeRange = 0;
   final List<String> _timeRanges = ['今日', '本周', '本月', '全部'];
+  int _unsyncedCount = 0;
 
   @override
   void initState() {
@@ -34,7 +37,39 @@ class _CarbonFootprintReportPageState extends State<CarbonFootprintReportPage>
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
+      _loadUnsyncedCount();
     });
+  }
+
+  Future<void> _loadUnsyncedCount() async {
+    final count = await context.read<CarbonFootprintProvider>().getUnsyncedCount();
+    if (mounted) {
+      setState(() {
+        _unsyncedCount = count;
+      });
+    }
+  }
+
+  Future<void> _syncAllRecords() async {
+    final syncProvider = context.read<SyncProvider>();
+    if (syncProvider.isSyncing) {
+      ToastUtil.show('同步进行中，请稍候');
+      return;
+    }
+
+    try {
+      final count = await context.read<CarbonFootprintProvider>().syncUnsynced();
+      await _loadUnsyncedCount();
+      await _loadData();
+
+      if (count > 0) {
+        ToastUtil.show('同步成功，共同步 $count 条记录');
+      } else {
+        ToastUtil.show('暂无待同步记录');
+      }
+    } catch (e) {
+      ToastUtil.show('同步失败: $e');
+    }
   }
 
   @override
@@ -87,6 +122,7 @@ class _CarbonFootprintReportPageState extends State<CarbonFootprintReportPage>
   Future<void> _onRefresh() async {
     try {
       await _loadData();
+      await _loadUnsyncedCount();
       _refreshController.refreshCompleted();
     } catch (e) {
       _refreshController.refreshFailed();
@@ -114,6 +150,47 @@ class _CarbonFootprintReportPageState extends State<CarbonFootprintReportPage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('碳足迹报告'),
+        actions: [
+          Consumer<SyncProvider>(
+            builder: (context, syncProvider, child) {
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.cloud_upload),
+                    onPressed: syncProvider.isSyncing ? null : _syncAllRecords,
+                    tooltip: '同步数据',
+                  ),
+                  if (_unsyncedCount > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: EdgeInsets.all(4.r),
+                        decoration: BoxDecoration(
+                          color: AppTheme.dangerColor,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: BoxConstraints(
+                          minWidth: 18.w,
+                          minHeight: 18.h,
+                        ),
+                        child: Text(
+                          _unsyncedCount > 99 ? '99+' : '$_unsyncedCount',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          SizedBox(width: 8.w),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

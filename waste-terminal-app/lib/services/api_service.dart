@@ -29,6 +29,7 @@ import '../models/transport_vehicle.dart';
 import '../models/transport_driver.dart';
 import '../models/transport_track.dart';
 import '../models/waste_ai_recognition.dart';
+import '../models/carbon_footprint_record.dart';
 import '../utils/logger_util.dart';
 import '../utils/sp_util.dart';
 
@@ -1660,6 +1661,187 @@ class ApiService {
       return null;
     } catch (e) {
       _logger.w('获取AI识别配置失败: $e');
+      return null;
+    }
+  }
+
+  // ==================== 碳足迹API ====================
+
+  /// 提交碳足迹记录
+  Future<CarbonFootprintRecord?> submitCarbonFootprint(
+      CarbonFootprintRecord record) async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) {
+        throw ApiException(code: -1, message: '无网络连接');
+      }
+
+      final response = await post(
+        ApiConstants.carbonFootprintAdd,
+        data: record.toJson(),
+      );
+
+      if (response.data['code'] == 200 && response.data['data'] != null) {
+        return CarbonFootprintRecord.fromJson(
+            Map<String, dynamic>.from(response.data['data']));
+      }
+      return null;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// 批量提交碳足迹记录
+  Future<SyncResult> submitCarbonFootprintBatch(
+      List<CarbonFootprintRecord> records) async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) {
+        throw ApiException(code: -1, message: '无网络连接');
+      }
+
+      final response = await post(
+        ApiConstants.carbonFootprintBatchAdd,
+        data: records.map((e) => e.toJson()).toList(),
+      );
+
+      if (response.data['code'] == 200) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        return SyncResult(
+          success: data?['success'] as int? ?? 0,
+          failed: data?['failed'] as int? ?? 0,
+          total: records.length,
+          failedIds: List<String>.from(data?['failedIds'] as List? ?? []),
+          messages: List<String>.from(data?['messages'] as List? ?? []),
+        );
+      }
+      return SyncResult(
+        success: 0,
+        failed: records.length,
+        total: records.length,
+        failedIds: records.map((e) => e.offlineId ?? '').toList(),
+        messages: [response.data['msg'] ?? '上传失败'],
+      );
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// 同步单个碳足迹记录
+  Future<bool> syncCarbonFootprint(int id) async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) {
+        return false;
+      }
+
+      final response = await post(
+        ApiConstants.carbonFootprintSync,
+        data: {'id': id},
+      );
+
+      return response.data['code'] == 200;
+    } catch (e) {
+      _logger.w('同步碳足迹记录失败: $e');
+      return false;
+    }
+  }
+
+  /// 获取碳足迹记录列表
+  Future<List<CarbonFootprintRecord>> getCarbonFootprintList({
+    String? keyword,
+    String? wasteCategory,
+    String? disposalMethod,
+    String? startTime,
+    String? endTime,
+    int? syncStatus,
+  }) async {
+    final response = await get(
+      ApiConstants.carbonFootprintList,
+      queryParameters: {
+        if (keyword != null) 'keyword': keyword,
+        if (wasteCategory != null) 'wasteCategory': wasteCategory,
+        if (disposalMethod != null) 'disposalMethod': disposalMethod,
+        if (startTime != null) 'startTime': startTime,
+        if (endTime != null) 'endTime': endTime,
+        if (syncStatus != null) 'syncStatus': syncStatus,
+      },
+    );
+    return parseList<CarbonFootprintRecord>(
+        response, (e) => CarbonFootprintRecord.fromJson(e));
+  }
+
+  /// 分页获取碳足迹记录
+  Future<PageResult<CarbonFootprintRecord>> getCarbonFootprintPage({
+    int pageNum = 1,
+    int pageSize = 10,
+    String? keyword,
+    String? wasteCategory,
+    String? disposalMethod,
+    String? startTime,
+    String? endTime,
+    int? syncStatus,
+  }) async {
+    final response = await get(
+      ApiConstants.carbonFootprintPage,
+      queryParameters: {
+        'pageNum': pageNum,
+        'pageSize': pageSize,
+        if (keyword != null) 'keyword': keyword,
+        if (wasteCategory != null) 'wasteCategory': wasteCategory,
+        if (disposalMethod != null) 'disposalMethod': disposalMethod,
+        if (startTime != null) 'startTime': startTime,
+        if (endTime != null) 'endTime': endTime,
+        if (syncStatus != null) 'syncStatus': syncStatus,
+      },
+    );
+    return parsePage<CarbonFootprintRecord>(
+        response, (e) => CarbonFootprintRecord.fromJson(e));
+  }
+
+  /// 获取碳足迹记录详情
+  Future<CarbonFootprintRecord?> getCarbonFootprintDetail(int id) async {
+    final response = await get('${ApiConstants.carbonFootprintDetail}/$id');
+    return parseData<CarbonFootprintRecord>(
+        response, (e) => CarbonFootprintRecord.fromJson(e));
+  }
+
+  /// 获取碳足迹统计
+  Future<Map<String, dynamic>> getCarbonFootprintStats({
+    String? startTime,
+    String? endTime,
+  }) async {
+    final response = await get(
+      ApiConstants.carbonFootprintStats,
+      queryParameters: {
+        if (startTime != null) 'startTime': startTime,
+        if (endTime != null) 'endTime': endTime,
+      },
+    );
+    return Map<String, dynamic>.from(response.data['data'] ?? {});
+  }
+
+  /// 根据转移联单生成碳足迹记录
+  Future<CarbonFootprintRecord?> generateCarbonFootprintFromTransferOrder(
+      String transferOrderId) async {
+    try {
+      bool hasNetwork = await isNetworkAvailable();
+      if (!hasNetwork) {
+        return null;
+      }
+
+      final response = await post(
+        ApiConstants.carbonFootprintGenerate,
+        data: {'transferOrderId': transferOrderId},
+      );
+
+      if (response.data['code'] == 200 && response.data['data'] != null) {
+        return CarbonFootprintRecord.fromJson(
+            Map<String, dynamic>.from(response.data['data']));
+      }
+      return null;
+    } catch (e) {
+      _logger.w('根据转移联单生成碳足迹失败: $e');
       return null;
     }
   }

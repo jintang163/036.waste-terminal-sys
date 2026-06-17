@@ -11,7 +11,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:photo_view/photo_view.dart';
 
 import '../models/transfer_order.dart';
+import '../services/carbon_footprint_service.dart';
 import '../services/transfer_order_service.dart';
+import '../config/app_routes.dart';
 import '../utils/date_util.dart';
 import '../utils/logger_util.dart';
 import '../utils/print_util.dart';
@@ -951,6 +953,16 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
       ));
     }
 
+    if (status != TransferOrderStatus.DRAFT &&
+        status != TransferOrderStatus.CANCELLED) {
+      buttons.add(_buildActionButton(
+        label: '碳足迹计算',
+        icon: Icons.eco,
+        color: Colors.green,
+        onPressed: _handleCarbonFootprintCalc,
+      ));
+    }
+
     if (buttons.isEmpty && _signPhotoFile == null && _receiptPhotoFile == null) {
       return const SizedBox.shrink();
     }
@@ -1384,7 +1396,16 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
           widget.orderId,
           receiptPhoto: receiptPhotoBase64,
         );
-        ToastUtil.showSuccess('联单已完成');
+        
+        try {
+          final carbonFootprintService = CarbonFootprintService();
+          await carbonFootprintService.generateFromTransferOrder(_order!);
+          ToastUtil.showSuccess('联单已完成，碳足迹记录已自动生成');
+        } catch (e) {
+          ToastUtil.showSuccess('联单已完成');
+          LoggerUtil.w('自动生成碳足迹记录失败: $e');
+        }
+        
         setState(() {
           _receiptPhotoFile = null;
         });
@@ -1395,6 +1416,47 @@ class _TransferOrderDetailPageState extends State<TransferOrderDetailPage> {
       } finally {
         ToastUtil.dismissLoading();
       }
+    }
+  }
+
+  Future<void> _handleCarbonFootprintCalc() async {
+    if (_order == null) return;
+    
+    try {
+      final hasExisting = await CarbonFootprintService()
+          .hasRecordForTransferOrder(_order!.orderNo ?? '');
+      
+      if (hasExisting) {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('提示'),
+            content: const Text('该转运联单已有碳足迹记录，是否重新计算？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('重新计算'),
+              ),
+            ],
+          ),
+        );
+        
+        if (confirm != true) return;
+      }
+      
+      Navigator.pushNamed(
+        context,
+        AppRoutes.carbonFootprintCalc,
+        arguments: {
+          'transferOrder': _order,
+        },
+      );
+    } catch (e) {
+      ToastUtil.showError('操作失败: $e');
     }
   }
 

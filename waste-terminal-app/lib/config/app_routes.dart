@@ -27,6 +27,7 @@ import '../pages/dashboard_cockpit_page.dart';
 import '../pages/liquid_level_sensor_page.dart';
 import '../pages/carbon_footprint_calc_page.dart';
 import '../pages/carbon_footprint_report_page.dart';
+import '../models/transfer_order.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -103,7 +104,6 @@ class AppRoutes {
         deviceStatus: (context) => const DeviceStatusPage(),
         dashboardCockpit: (context) => const DashboardCockpitPage(),
         liquidLevelSensor: (context) => const LiquidLevelSensorPage(),
-        carbonFootprintCalc: (context) => const CarbonFootprintCalcPage(),
         carbonFootprintReport: (context) => const CarbonFootprintReportPage(),
       };
 
@@ -119,6 +119,23 @@ class AppRoutes {
         }
         return MaterialPageRoute(
           builder: (context) => TransferOrderDetailPage(orderId: orderId),
+          settings: settings,
+        );
+      case carbonFootprintCalc:
+        final args = settings.arguments;
+        String? transferOrderId;
+        TransferOrder? transferOrder;
+        if (args is Map) {
+          transferOrderId = args['transferOrderId'] as String?;
+          transferOrder = args['transferOrder'] as TransferOrder?;
+        } else if (args is String) {
+          transferOrderId = args;
+        }
+        return MaterialPageRoute(
+          builder: (context) => CarbonFootprintCalcPage(
+            transferOrderId: transferOrderId,
+            transferOrder: transferOrder,
+          ),
           settings: settings,
         );
       case cameraPreview:

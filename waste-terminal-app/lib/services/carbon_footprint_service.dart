@@ -3,7 +3,9 @@ import 'package:uuid/uuid.dart';
 
 import '../db/carbon_footprint_db.dart';
 import '../models/carbon_footprint_record.dart';
+import '../models/transfer_order.dart';
 import 'api_service.dart';
+import 'sync_service.dart';
 
 class CarbonFootprintService {
   static final CarbonFootprintService _instance =
@@ -408,6 +410,16 @@ class CarbonFootprintService {
     }
   }
 
+  Future<int> getUnsyncedCount() async {
+    try {
+      final results = await _carbonFootprintDb.queryUnsynced();
+      return results.length;
+    } catch (e) {
+      _logger.e('获取未同步碳足迹记录数量失败: $e');
+      return 0;
+    }
+  }
+
   Future<bool> syncRecord(int id) async {
     try {
       bool hasNetwork = await _apiService.isNetworkAvailable();
@@ -422,11 +434,35 @@ class CarbonFootprintService {
         return false;
       }
 
-      await _carbonFootprintDb.updateSyncStatus(id, 1);
-      _logger.d('碳足迹记录同步成功: $id');
-      return true;
+      if (record.syncStatus == 1) {
+        _logger.d('碳足迹记录已同步，跳过: $id');
+        return true;
+      }
+
+      await _carbonFootprintDb.updateSyncStatus(id, 3);
+
+      final uploadedRecord = await _apiService.submitCarbonFootprint(record);
+      if (uploadedRecord != null) {
+        final now = DateTime.now();
+        await _carbonFootprintDb.update({
+          'id': id,
+          'record_id': uploadedRecord.recordId,
+          'sync_status': 1,
+          'sync_time': now.toIso8601String(),
+          'update_time': now.toIso8601String(),
+        });
+        _logger.d('碳足迹记录同步成功: $id, recordId: ${uploadedRecord.recordId}');
+        return true;
+      } else {
+        await _carbonFootprintDb.updateSyncStatus(id, 2);
+        _logger.w('碳足迹记录上传失败，标记为同步失败: $id');
+        return false;
+      }
     } catch (e) {
       _logger.e('同步碳足迹记录失败: $e');
+      try {
+        await _carbonFootprintDb.updateSyncStatus(id, 2);
+      } catch (_) {}
       return false;
     }
   }
@@ -436,15 +472,41 @@ class CarbonFootprintService {
       final unsynced = await getUnsyncedRecords();
       if (unsynced.isEmpty) return 0;
 
-      int successCount = 0;
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.w('无网络，无法批量同步碳足迹记录');
+        return 0;
+      }
+
+      _logger.d('待同步碳足迹记录数量: ${unsynced.length}');
+
+      final SyncResult result =
+          await _apiService.submitCarbonFootprintBatch(unsynced);
+
+      final now = DateTime.now();
+      final syncTime = now.toIso8601String();
+
       for (var record in unsynced) {
-        if (record.id != null) {
-          final success = await syncRecord(record.id!);
-          if (success) successCount++;
+        if (record.id == null) continue;
+
+        final offlineId = record.offlineId;
+        final isSuccess = !result.failedIds.contains(offlineId);
+
+        if (isSuccess) {
+          await _carbonFootprintDb.update({
+            'id': record.id,
+            'sync_status': 1,
+            'sync_time': syncTime,
+            'update_time': now.toIso8601String(),
+          });
+        } else {
+          await _carbonFootprintDb.updateSyncStatus(record.id!, 2);
         }
       }
-      _logger.i('碳足迹记录同步完成，成功: $successCount/${unsynced.length}');
-      return successCount;
+
+      _logger.i(
+          '碳足迹记录批量同步完成，成功: ${result.success}/${result.total}, 失败: ${result.failed}');
+      return result.success;
     } catch (e) {
       _logger.e('批量同步碳足迹记录失败: $e');
       return 0;
@@ -503,6 +565,102 @@ class CarbonFootprintService {
     } catch (e) {
       _logger.e('删除碳足迹记录失败: $e');
       return false;
+    }
+  }
+
+  Future<bool> hasRecordForTransferOrder(String transferOrderNo) async {
+    try {
+      final records = await _carbonFootprintDb
+          .queryByTransferOrderNo(transferOrderNo);
+      return records.isNotEmpty;
+    } catch (e) {
+      _logger.e('检查转运联单碳足迹记录失败: $e');
+      return false;
+    }
+  }
+
+  Future<CarbonFootprintRecord?> generateFromTransferOrder(
+      TransferOrder order) async {
+    try {
+      if (order.orderNo == null || order.orderNo!.isEmpty) {
+        throw Exception('转运联单号为空');
+      }
+
+      if (order.items == null || order.items!.isEmpty) {
+        throw Exception('转运联单没有危废明细');
+      }
+
+      final existingRecords = await _carbonFootprintDb
+          .queryByTransferOrderNo(order.orderNo!);
+      if (existingRecords.isNotEmpty) {
+        _logger.i('该转运联单已有碳足迹记录，跳过自动生成');
+        return CarbonFootprintRecord.fromJson(existingRecords.first);
+      }
+
+      final firstItem = order.items!.first;
+      final wasteCategory = firstItem.wasteCategory;
+      final weight = order.totalWeight ??
+          firstItem.weight ??
+          0;
+      final transportMode = order.vehicleNo != null && order.vehicleNo!.isNotEmpty
+          ? 'heavy_truck'
+          : 'truck';
+      final transportDistance = order.transportDistance ?? 0;
+      final disposalMethod = order.disposalMethod ?? 'incineration';
+
+      if (wasteCategory == null || wasteCategory.isEmpty) {
+        throw Exception('危废类别为空');
+      }
+
+      final result = calculate(
+        wasteCategory: wasteCategory,
+        weight: weight,
+        transportMode: transportMode,
+        transportDistance: transportDistance,
+        disposalMethod: disposalMethod,
+      );
+
+      final now = DateTime.now();
+      final record = CarbonFootprintRecord(
+        offlineId: _uuid.v4(),
+        wasteCode: firstItem.wasteCode,
+        wasteName: firstItem.wasteName,
+        wasteCategory: wasteCategory,
+        weight: weight,
+        weightUnit: 't',
+        transportDistance: transportDistance,
+        transportDistanceUnit: 'km',
+        transportMode: transportMode,
+        disposalMethod: disposalMethod,
+        transportEmission: result.transportEmission,
+        disposalEmission: result.disposalEmission,
+        totalEmission: result.totalEmission,
+        emissionUnit: result.unit,
+        transferOrderId: order.id?.toString(),
+        transferOrderNo: order.orderNo,
+        transportFactor: result.transportFactor,
+        disposalFactor: result.disposalFactor,
+        syncStatus: 0,
+        createTime: now,
+        updateTime: now,
+      );
+
+      final id = await _carbonFootprintDb.insert(record.toJson());
+      _logger.i('从转运联单自动生成碳足迹记录成功，本地ID: $id');
+      
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (hasNetwork) {
+        try {
+          await syncRecord(id);
+        } catch (e) {
+          _logger.w('立即同步碳足迹记录失败，将在下次同步时重试: $e');
+        }
+      }
+
+      return record.copyWith(id: id);
+    } catch (e) {
+      _logger.e('从转运联单生成碳足迹记录失败: $e');
+      rethrow;
     }
   }
 }

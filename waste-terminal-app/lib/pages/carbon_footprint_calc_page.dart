@@ -4,18 +4,29 @@ import 'package:provider/provider.dart';
 
 import '../config/app_routes.dart';
 import '../config/app_theme.dart';
+import '../models/transfer_order.dart';
 import '../providers/carbon_footprint_provider.dart';
+import '../services/carbon_footprint_service.dart';
+import '../services/transfer_order_service.dart';
 import '../utils/toast_util.dart';
 import '../widgets/empty_state.dart';
 
 class CarbonFootprintCalcPage extends StatefulWidget {
-  const CarbonFootprintCalcPage({super.key});
+  final String? transferOrderId;
+  final TransferOrder? transferOrder;
+
+  const CarbonFootprintCalcPage({
+    super.key,
+    this.transferOrderId,
+    this.transferOrder,
+  });
 
   @override
   State<CarbonFootprintCalcPage> createState() => _CarbonFootprintCalcPageState();
 }
 
 class _CarbonFootprintCalcPageState extends State<CarbonFootprintCalcPage> {
+  final TransferOrderService _transferOrderService = TransferOrderService();
   final TextEditingController _weightController = TextEditingController();
   final TextEditingController _distanceController = TextEditingController();
   final TextEditingController _wasteNameController = TextEditingController();
@@ -23,12 +34,77 @@ class _CarbonFootprintCalcPageState extends State<CarbonFootprintCalcPage> {
   final TextEditingController _remarkController = TextEditingController();
   final TextEditingController _transferOrderNoController = TextEditingController();
 
+  TransferOrder? _loadedTransferOrder;
+  bool _isLoading = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CarbonFootprintProvider>().init();
+      _loadTransferOrderData();
     });
+  }
+
+  Future<void> _loadTransferOrderData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      TransferOrder? order = widget.transferOrder;
+
+      if (order == null && widget.transferOrderId != null) {
+        final orderData = await _transferOrderService
+            .getTransferOrderByOrderNo(widget.transferOrderId!);
+        if (orderData != null) {
+          order = TransferOrder.fromJson(orderData);
+        }
+      }
+
+      if (order != null) {
+        _loadedTransferOrder = order;
+        _transferOrderNoController.text = order.orderNo ?? '';
+
+        if (order.items != null && order.items!.isNotEmpty) {
+          final firstItem = order.items!.first;
+          if (firstItem.wasteCategory != null) {
+            if (mounted) {
+              context
+                  .read<CarbonFootprintProvider>()
+                  .setSelectedWasteCategory(firstItem.wasteCategory!);
+            }
+          }
+          _wasteCodeController.text = firstItem.wasteCode ?? '';
+          _wasteNameController.text = firstItem.wasteName ?? '';
+          if (firstItem.weight != null) {
+            _weightController.text = firstItem.weight!.toString();
+          }
+        }
+
+        if (order.totalWeight != null && order.totalWeight! > 0) {
+          _weightController.text = order.totalWeight!.toString();
+        }
+
+        if (order.vehicleNo != null && order.vehicleNo!.isNotEmpty) {
+          if (mounted) {
+            context
+                .read<CarbonFootprintProvider>()
+                .setSelectedTransportMode('heavy_truck');
+          }
+        }
+
+        _onInputChanged();
+      }
+    } catch (e) {
+      ToastUtil.showError('加载转运联单数据失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -220,6 +296,7 @@ class _CarbonFootprintCalcPageState extends State<CarbonFootprintCalcPage> {
           : null,
       weight: weight,
       transportDistance: distance,
+      transferOrderId: _loadedTransferOrder?.id?.toString(),
       transferOrderNo: _transferOrderNoController.text.isNotEmpty
           ? _transferOrderNoController.text
           : null,

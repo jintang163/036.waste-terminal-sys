@@ -789,4 +789,14 @@ class ApiConstants {
 
   static const String wasteAiRecognize = '/waste-ai/recognition/recognize';
   static const String wasteAiConfig = '/waste-ai/recognition/config';
+
+  /// 碳足迹
+  static const String carbonFootprintAdd = '/carbon-footprint/add';
+  static const String carbonFootprintList = '/carbon-footprint/list';
+  static const String carbonFootprintDetail = '/carbon-footprint/detail';
+  static const String carbonFootprintPage = '/carbon-footprint/page';
+  static const String carbonFootprintBatchAdd = '/carbon-footprint/batch-add';
+  static const String carbonFootprintSync = '/carbon-footprint/sync';
+  static const String carbonFootprintStats = '/carbon-footprint/stats';
+  static const String carbonFootprintGenerate = '/carbon-footprint/generate';
 }

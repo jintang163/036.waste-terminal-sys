@@ -217,6 +217,8 @@ class TransferOrder {
   final String? driverName;
   final String? driverLicense;
   final String? escortName;
+  final double? transportDistance;
+  final String? disposalMethod;
   final double? totalWeight;
   final int? totalContainers;
   final String? wasteDetails;
@@ -265,6 +267,8 @@ class TransferOrder {
     this.driverName,
     this.driverLicense,
     this.escortName,
+    this.transportDistance,
+    this.disposalMethod,
     this.totalWeight,
     this.totalContainers,
     this.wasteDetails,
@@ -317,6 +321,8 @@ class TransferOrder {
       driverName: json['driverName'] as String?,
       driverLicense: json['driverLicense'] as String?,
       escortName: json['escortName'] as String?,
+      transportDistance: (json['transportDistance'] as num?)?.toDouble(),
+      disposalMethod: json['disposalMethod'] as String?,
       totalWeight: (json['totalWeight'] as num?)?.toDouble(),
       totalContainers: json['totalContainers'] as int?,
       wasteDetails: json['wasteDetails'] as String?,
@@ -388,6 +394,8 @@ class TransferOrder {
       'driverName': driverName,
       'driverLicense': driverLicense,
       'escortName': escortName,
+      'transportDistance': transportDistance,
+      'disposalMethod': disposalMethod,
       'totalWeight': totalWeight,
       'totalContainers': totalContainers,
       'wasteDetails': wasteDetails,
@@ -438,6 +446,8 @@ class TransferOrder {
     String? driverName,
     String? driverLicense,
     String? escortName,
+    double? transportDistance,
+    String? disposalMethod,
     double? totalWeight,
     int? totalContainers,
     String? wasteDetails,
@@ -486,6 +496,8 @@ class TransferOrder {
       driverName: driverName ?? this.driverName,
       driverLicense: driverLicense ?? this.driverLicense,
       escortName: escortName ?? this.escortName,
+      transportDistance: transportDistance ?? this.transportDistance,
+      disposalMethod: disposalMethod ?? this.disposalMethod,
       totalWeight: totalWeight ?? this.totalWeight,
       totalContainers: totalContainers ?? this.totalContainers,
       wasteDetails: wasteDetails ?? this.wasteDetails,

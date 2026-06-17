@@ -298,6 +298,15 @@ class CarbonFootprintProvider extends ChangeNotifier {
     }
   }
 
+  Future<int> getUnsyncedCount() async {
+    try {
+      return await _service.getUnsyncedCount();
+    } catch (e) {
+      _logger.e('获取待同步碳足迹记录数量失败: $e');
+      return 0;
+    }
+  }
+
   String getTransportModeName(String mode) {
     return CarbonFootprintService.getTransportModeName(mode);
   }

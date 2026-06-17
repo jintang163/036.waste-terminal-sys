@@ -8,6 +8,7 @@ import '../models/waste_in_record.dart';
 import '../models/waste_out_record.dart';
 import '../models/face_auth_record_model.dart';
 import '../models/transport_track.dart';
+import '../models/carbon_footprint_record.dart';
 import '../db/sync_log_db.dart';
 import '../db/waste_catalog_db.dart';
 import '../db/waste_container_db.dart';
@@ -22,6 +23,7 @@ import '../db/face_auth_record_db.dart';
 import '../db/transport_vehicle_db.dart';
 import '../db/transport_driver_db.dart';
 import '../db/transport_track_db.dart';
+import '../db/carbon_footprint_db.dart';
 
 import 'api_service.dart';
 import 'operation_log_service.dart';
@@ -40,6 +42,7 @@ enum SyncModule {
   transportVehicle,
   transportDriver,
   transportTrack,
+  carbonFootprint,
 }
 
 class SyncService {
@@ -66,6 +69,7 @@ class SyncService {
   final TransportVehicleDb _transportVehicleDb = TransportVehicleDb();
   final TransportDriverDb _transportDriverDb = TransportDriverDb();
   final TransportTrackDb _transportTrackDb = TransportTrackDb();
+  final CarbonFootprintDb _carbonFootprintDb = CarbonFootprintDb();
   final SyncLogDb _syncLogDb = SyncLogDb();
 
   SyncStatus _syncStatus = SyncStatus.idle;
@@ -144,7 +148,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.full;
       _progress = 0.0;
-      _totalCount = 16;
+      _totalCount = 17;
       _completedCount = 0;
 
       await _syncCamera();
@@ -194,6 +198,9 @@ class SyncService {
 
       await _uploadTransportTracks();
       _updateProgress(16);
+
+      await _uploadCarbonFootprintRecords();
+      _updateProgress(17);
 
       _updateStatus(SyncStatus.success);
 
@@ -288,7 +295,7 @@ class SyncService {
       _updateStatus(SyncStatus.syncing);
       _currentSyncType = SyncType.incremental;
       _progress = 0.0;
-      _totalCount = 16;
+      _totalCount = 17;
       _completedCount = 0;
 
       await _syncCamera();
@@ -338,6 +345,9 @@ class SyncService {
 
       await _uploadTransportTracks();
       _updateProgress(16);
+
+      await _uploadCarbonFootprintRecords();
+      _updateProgress(17);
 
       _updateStatus(SyncStatus.success);
 
@@ -696,12 +706,15 @@ class SyncService {
     count += authRecords.length;
     final trackPoints = await _transportTrackDb.queryUnsyncedPoints();
     count += trackPoints.length;
+    final carbonRecords = await _carbonFootprintDb.queryUnsynced();
+    count += carbonRecords.length;
     return count;
   }
 
   Future<Map<String, int>> getUnsyncedCountByModule() async {
     final authRecords = await _faceAuthRecordDb.queryUnsynced();
     final trackPoints = await _transportTrackDb.queryUnsyncedPoints();
+    final carbonRecords = await _carbonFootprintDb.queryUnsynced();
     return {
       'wasteIn': await _wasteInRecordDb.queryUnsyncedCount(),
       'wasteOut': await _wasteOutRecordDb.queryUnsyncedCount(),
@@ -710,6 +723,7 @@ class SyncService {
       'localRecord': await _localRecordTaskDb.queryUnsyncedCount(),
       'faceAuthRecord': authRecords.length,
       'transportTrack': trackPoints.length,
+      'carbonFootprint': carbonRecords.length,
     };
   }
 
@@ -1021,6 +1035,61 @@ class SyncService {
       _logger.d('本地录像上传完成');
     } catch (e) {
       _logger.w('本地录像上传失败: $e');
+    }
+  }
+
+  Future<void> _uploadCarbonFootprintRecords() async {
+    _currentModule = '碳足迹记录';
+    _moduleController.add(_currentModule!);
+
+    try {
+      bool hasNetwork = await _apiService.isNetworkAvailable();
+      if (!hasNetwork) {
+        _logger.d('无网络，跳过碳足迹记录上传');
+        return;
+      }
+
+      List<Map<String, dynamic>> unsynced = await _carbonFootprintDb.queryUnsynced();
+      if (unsynced.isEmpty) {
+        _logger.d('无待同步碳足迹记录');
+        return;
+      }
+
+      _logger.d('待同步碳足迹记录数量: ${unsynced.length}');
+
+      final List<CarbonFootprintRecord> records = unsynced
+          .map((e) => CarbonFootprintRecord.fromJson(e))
+          .toList();
+
+      final SyncResult result =
+          await _apiService.submitCarbonFootprintBatch(records);
+
+      final now = DateTime.now();
+      final syncTime = now.toIso8601String();
+
+      for (var record in unsynced) {
+        final id = record['id'] as int?;
+        if (id == null) continue;
+
+        final offlineId = record['offline_id'] as String?;
+        final isSuccess = !result.failedIds.contains(offlineId);
+
+        if (isSuccess) {
+          await _carbonFootprintDb.update({
+            'id': id,
+            'sync_status': 1,
+            'sync_time': syncTime,
+            'update_time': now.toIso8601String(),
+          });
+        } else {
+          await _carbonFootprintDb.updateSyncStatus(id, 2);
+        }
+      }
+
+      _logger.d(
+          '碳足迹记录上传完成，成功: ${result.success}/${result.total}, 失败: ${result.failed}');
+    } catch (e) {
+      _logger.w('碳足迹记录上传失败: $e');
     }
   }
 
