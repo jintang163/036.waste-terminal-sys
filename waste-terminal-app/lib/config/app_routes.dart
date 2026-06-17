@@ -25,6 +25,8 @@ import '../pages/rfid_batch_in_page.dart';
 import '../pages/device_status_page.dart';
 import '../pages/dashboard_cockpit_page.dart';
 import '../pages/liquid_level_sensor_page.dart';
+import '../pages/carbon_footprint_calc_page.dart';
+import '../pages/carbon_footprint_report_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -64,6 +66,8 @@ class AppRoutes {
   static const String deviceStatus = '/device_status';
   static const String dashboardCockpit = '/dashboard_cockpit';
   static const String liquidLevelSensor = '/liquid_level_sensor';
+  static const String carbonFootprintCalc = '/carbon_footprint_calc';
+  static const String carbonFootprintReport = '/carbon_footprint_report';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -99,6 +103,8 @@ class AppRoutes {
         deviceStatus: (context) => const DeviceStatusPage(),
         dashboardCockpit: (context) => const DashboardCockpitPage(),
         liquidLevelSensor: (context) => const LiquidLevelSensorPage(),
+        carbonFootprintCalc: (context) => const CarbonFootprintCalcPage(),
+        carbonFootprintReport: (context) => const CarbonFootprintReportPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {

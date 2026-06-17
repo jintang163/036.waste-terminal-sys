@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 8;
+  static const int dbVersion = 9;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -26,6 +26,7 @@ class DatabaseTables {
   static const String tableWasteOutReview = 'waste_out_review';
   static const String tableLevelSensor = 'level_sensor';
   static const String tableLevelReading = 'level_reading';
+  static const String tableCarbonFootprintRecord = 'carbon_footprint_record';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (
@@ -475,6 +476,38 @@ class DatabaseTables {
     )
   ''';
 
+  static const String createTableCarbonFootprintRecord = '''
+    CREATE TABLE $tableCarbonFootprintRecord (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_id TEXT,
+      offline_id TEXT,
+      waste_code TEXT,
+      waste_name TEXT,
+      waste_category TEXT,
+      weight REAL,
+      weight_unit TEXT,
+      transport_distance REAL,
+      transport_distance_unit TEXT,
+      transport_mode TEXT,
+      disposal_method TEXT,
+      transport_emission REAL,
+      disposal_emission REAL,
+      total_emission REAL,
+      emission_unit TEXT,
+      transfer_order_id TEXT,
+      transfer_order_no TEXT,
+      operator TEXT,
+      operator_id TEXT,
+      remark TEXT,
+      sync_status INTEGER DEFAULT 0,
+      sync_time TEXT,
+      record_time TEXT,
+      create_time TEXT,
+      update_time TEXT,
+      is_deleted INTEGER DEFAULT 0
+    )
+  ''';
+
   static List<String> getAllCreateTableSql() {
     return [
       createTableWasteCatalog,
@@ -497,6 +530,7 @@ class DatabaseTables {
       createTableTransportTrack,
       createTableTransportTrackPoint,
       createTableWasteOutReview,
+      createTableCarbonFootprintRecord,
     ];
   }
 }

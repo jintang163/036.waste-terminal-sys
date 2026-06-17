@@ -19,6 +19,7 @@ import 'providers/waste_out_provider.dart';
 import 'providers/waste_ledger_provider.dart';
 import 'providers/dashboard_cockpit_provider.dart';
 import 'providers/liquid_level_provider.dart';
+import 'providers/carbon_footprint_provider.dart';
 import 'services/device_self_check_service.dart';
 import 'services/liquid_level_linkage_service.dart';
 import 'services/operation_log_service.dart';
@@ -62,6 +63,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
   final WasteLedgerProvider _wasteLedgerProvider = WasteLedgerProvider();
   final DashboardCockpitProvider _dashboardCockpitProvider = DashboardCockpitProvider();
   final LiquidLevelProvider _liquidLevelProvider = LiquidLevelProvider();
+  final CarbonFootprintProvider _carbonFootprintProvider = CarbonFootprintProvider();
 
   final LiquidLevelLinkageService _linkageService = LiquidLevelLinkageService();
   final TransferOrderService _transferOrderService = TransferOrderService();
@@ -93,6 +95,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
     await _wasteLedgerProvider.init();
     await _dashboardCockpitProvider.init();
     await _liquidLevelProvider.init();
+    await _carbonFootprintProvider.init();
 
     await _initDeviceServices();
     _setupAlertListener();
@@ -248,6 +251,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
         ChangeNotifierProvider<WasteLedgerProvider>.value(value: _wasteLedgerProvider),
         ChangeNotifierProvider<DashboardCockpitProvider>.value(value: _dashboardCockpitProvider),
         ChangeNotifierProvider<LiquidLevelProvider>.value(value: _liquidLevelProvider),
+        ChangeNotifierProvider<CarbonFootprintProvider>.value(value: _carbonFootprintProvider),
       ],
       child: Consumer<AppProvider>(
         builder: (context, appProvider, child) {

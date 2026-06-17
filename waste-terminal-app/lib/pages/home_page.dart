@@ -339,6 +339,12 @@ class _HomePageState extends State<HomePage> {
         route: AppRoutes.dashboardCockpit,
       ),
       _ActionItem(
+        icon: Icons.eco,
+        label: '碳足迹计算',
+        color: const Color(0xFF4CAF50),
+        route: AppRoutes.carbonFootprintCalc,
+      ),
+      _ActionItem(
         icon: Icons.water_drop,
         label: '液位监控',
         color: const Color(0xFF2196F3),

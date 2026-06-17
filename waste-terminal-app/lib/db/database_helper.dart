@@ -155,6 +155,16 @@ class DatabaseHelper {
       await batch.commit(noResult: true);
       _logger.i('数据库升级到v7完成，已添加出库双人复核相关表和字段');
     }
+    if (oldVersion < 9) {
+      Batch batch = db.batch();
+      try {
+        batch.execute(DatabaseTables.createTableCarbonFootprintRecord);
+      } catch (e) {
+        _logger.w('创建表 carbon_footprint_record 失败(可能已存在): $e');
+      }
+      await batch.commit(noResult: true);
+      _logger.i('数据库升级到v9完成，已添加碳足迹记录表');
+    }
   }
 
   Future<void> _onDowngrade(Database db, int oldVersion, int newVersion) async {
