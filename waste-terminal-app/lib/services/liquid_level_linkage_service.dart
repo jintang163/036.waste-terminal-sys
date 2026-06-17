@@ -165,16 +165,15 @@ class LiquidLevelLinkageService {
         '写入液位预警: $warningId, type=$warningType, level=$warningLevel');
 
     String? transferOrderNo;
-    if (reading.state == LiquidLevelState.full) {
-      try {
-        transferOrderNo = await _autoCreateTransferOrder(
-          containerCode: containerCode,
-          inventory: inventory,
-          warningId: warningId,
-        );
-      } catch (e) {
-        LoggerUtil.error('自动生成转运联单失败: $e');
-      }
+    try {
+      transferOrderNo = await _autoCreateTransferOrder(
+        containerCode: containerCode,
+        inventory: inventory,
+        warningId: warningId,
+        isNearFull: reading.state == LiquidLevelState.nearFull,
+      );
+    } catch (e) {
+      LoggerUtil.error('自动生成转运联单失败: $e');
     }
 
     return LiquidLevelAlertEvent(
@@ -221,6 +220,7 @@ class LiquidLevelLinkageService {
     String? containerCode,
     Map<String, dynamic>? inventory,
     required String warningId,
+    bool isNearFull = false,
   }) async {
     final db = await _db.database;
     final now = DateTime.now();
@@ -231,33 +231,37 @@ class LiquidLevelLinkageService {
     String? enterpriseName;
     String? enterpriseId;
     if (enterpriseInfo != null) {
-        try {
-          final enterprise = _tryJsonDecode(enterpriseInfo);
-          if (enterprise is Map<String, dynamic>) {
-            enterpriseName = enterprise['name'] as String? ??
-                enterprise['enterpriseName'] as String?;
-            enterpriseId = enterprise['id']?.toString() ??
-                enterprise['enterpriseId']?.toString();
-          }
-        } catch (_) {}
-      }
+      try {
+        final enterprise = _tryJsonDecode(enterpriseInfo);
+        if (enterprise is Map<String, dynamic>) {
+          enterpriseName = enterprise['name'] as String? ??
+              enterprise['enterpriseName'] as String?;
+          enterpriseId = enterprise['id']?.toString() ??
+              enterprise['enterpriseId']?.toString();
+        }
+      } catch (_) {}
+    }
 
-      final userInfo = SpUtil.getString(StorageConstants.userInfo);
-      String? operatorName;
-      String? operatorId;
-      if (userInfo != null) {
-        try {
-          final user = _tryJsonDecode(userInfo);
-          if (user is Map<String, dynamic>) {
-            operatorName = user['realName'] as String? ??
-                user['name'] as String? ??
-                user['username'] as String?;
-            operatorId = user['id']?.toString() ?? user['userId']?.toString();
-          }
-        } catch (_) {}
-      }
+    final userInfo = SpUtil.getString(StorageConstants.userInfo);
+    String? operatorName;
+    String? operatorId;
+    if (userInfo != null) {
+      try {
+        final user = _tryJsonDecode(userInfo);
+        if (user is Map<String, dynamic>) {
+          operatorName = user['realName'] as String? ??
+              user['name'] as String? ??
+              user['username'] as String?;
+          operatorId = user['id']?.toString() ?? user['userId']?.toString();
+        }
+      } catch (_) {}
+    }
 
     final weight = (inventory?['weight'] as num?)?.toDouble() ?? 0.0;
+    final orderStatus = isNearFull
+        ? StatusConstants.orderStatusDraft
+        : StatusConstants.orderStatusPending;
+    final triggerDesc = isNearFull ? '接近满' : '满溢';
     final order = {
       'offline_id': offlineId,
       'order_id': offlineId,
@@ -279,8 +283,8 @@ class LiquidLevelLinkageService {
       'vehicle_no': '',
       'start_time': now.toIso8601String(),
       'end_time': null,
-      'status': StatusConstants.orderStatusDraft,
-      'remark': '液位传感器自动生成，关联预警: $warningId，容器: ${containerCode ?? '未知'}',
+      'status': orderStatus,
+      'remark': '液位${triggerDesc}自动生成，关联预警: $warningId，容器: ${containerCode ?? '未知'}',
       'sync_status': StatusConstants.syncStatusNotSynced,
       'sync_time': null,
       'create_time': now.toIso8601String(),
@@ -289,7 +293,7 @@ class LiquidLevelLinkageService {
     };
 
     await db.insert(DatabaseTables.tableTransferOrder, order);
-    LoggerUtil.info('自动生成转运联单: $orderNo, 容器: $containerCode');
+    LoggerUtil.info('自动生成转运联单($triggerDesc): $orderNo, 容器: $containerCode');
 
     try {
       final hasNetwork = await _api.isNetworkAvailable();

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'config/app_config.dart';
 import 'config/app_theme.dart';
 import 'config/app_routes.dart';
+import 'pages/liquid_level_sensor_page.dart';
 import 'providers/app_provider.dart';
 import 'providers/inventory_provider.dart';
 import 'providers/sync_provider.dart';
@@ -17,9 +20,14 @@ import 'providers/waste_ledger_provider.dart';
 import 'providers/dashboard_cockpit_provider.dart';
 import 'providers/liquid_level_provider.dart';
 import 'services/device_self_check_service.dart';
+import 'services/liquid_level_linkage_service.dart';
 import 'services/operation_log_service.dart';
 import 'services/heartbeat_service.dart';
+import 'services/transfer_order_service.dart';
 import 'utils/logger_util.dart';
+import 'utils/toast_util.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,12 +63,24 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
   final DashboardCockpitProvider _dashboardCockpitProvider = DashboardCockpitProvider();
   final LiquidLevelProvider _liquidLevelProvider = LiquidLevelProvider();
 
+  final LiquidLevelLinkageService _linkageService = LiquidLevelLinkageService();
+  final TransferOrderService _transferOrderService = TransferOrderService();
+  StreamSubscription<LiquidLevelAlertEvent>? _alertSubscription;
+
   bool _isInitialized = false;
+  bool _alertDialogShowing = false;
 
   @override
   void initState() {
     super.initState();
     _initProviders();
+  }
+
+  @override
+  void dispose() {
+    _alertSubscription?.cancel();
+    _alertSubscription = null;
+    super.dispose();
   }
 
   Future<void> _initProviders() async {
@@ -75,10 +95,74 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
     await _liquidLevelProvider.init();
 
     await _initDeviceServices();
+    _setupAlertListener();
 
     setState(() {
       _isInitialized = true;
     });
+  }
+
+  void _setupAlertListener() {
+    _alertSubscription?.cancel();
+    _alertSubscription = _linkageService.alertStream.listen((event) {
+      _showGlobalAlertDialog(event);
+    });
+  }
+
+  Future<void> _showGlobalAlertDialog(LiquidLevelAlertEvent event) async {
+    if (_alertDialogShowing) return;
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null) return;
+    final context = navigator.context;
+    if (!mounted) return;
+
+    _alertDialogShowing = true;
+    try {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => LiquidLevelAlertDialog(
+          event: event,
+          onDismiss: () {
+            _alertDialogShowing = false;
+          },
+          onViewOrder: () async {
+            _alertDialogShowing = false;
+            Navigator.of(ctx).pop();
+            if (event.transferOrderNo != null) {
+              await _navigateToOrderDetail(event.transferOrderNo!);
+            }
+          },
+        ),
+      );
+    } finally {
+      _alertDialogShowing = false;
+    }
+  }
+
+  Future<void> _navigateToOrderDetail(String orderNo) async {
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null) return;
+
+    try {
+      final order = await _transferOrderService.getTransferOrderByOrderNo(orderNo);
+      if (order == null) {
+        ToastUtil.show('未找到联单信息');
+        return;
+      }
+      final orderId = (order['id'] as num?)?.toInt() ?? 0;
+      if (orderId <= 0) {
+        ToastUtil.show('联单ID无效');
+        return;
+      }
+      navigator.pushNamed(
+        AppRoutes.transferOrderDetail,
+        arguments: {'orderId': orderId},
+      );
+    } catch (e) {
+      LoggerUtil.error('跳转联单详情失败: $e');
+      ToastUtil.showError('跳转失败');
+    }
   }
 
   Future<void> _initDeviceServices() async {
@@ -173,6 +257,7 @@ class _WasteTerminalAppState extends State<WasteTerminalApp> {
             splitScreenMode: true,
             builder: (context, child) {
               return MaterialApp(
+                navigatorKey: appNavigatorKey,
                 title: AppConfig.appName,
                 debugShowCheckedModeBanner: false,
                 theme: AppTheme.lightTheme,

@@ -562,7 +562,7 @@ class _LiquidLevelSensorPageState extends State<LiquidLevelSensorPage> {
             onPressed: () {
               final code = _containerCodeController.text.trim();
               if (code.isEmpty) {
-                ToastUtil.showWarning('请输入容器编码');
+                ToastUtil.show('请输入容器编码');
                 return;
               }
               provider.bindContainer(code);
@@ -622,11 +622,11 @@ class _LiquidLevelSensorPageState extends State<LiquidLevelSensorPage> {
               final nearFull = double.tryParse(_nearFullController.text);
               final full = double.tryParse(_fullController.text);
               if (nearFull == null || nearFull < 0 || nearFull > 100) {
-                ToastUtil.showWarning('接近满阈值无效');
+                ToastUtil.show('接近满阈值无效');
                 return;
               }
               if (full == null || full <= nearFull || full > 100) {
-                ToastUtil.showWarning('满溢阈值必须大于接近满阈值');
+                ToastUtil.show('满溢阈值必须大于接近满阈值');
                 return;
               }
               provider.setThresholds(nearFull: nearFull, full: full);
