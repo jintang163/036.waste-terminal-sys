@@ -24,6 +24,7 @@ import '../pages/scale_calibration_page.dart';
 import '../pages/rfid_batch_in_page.dart';
 import '../pages/device_status_page.dart';
 import '../pages/dashboard_cockpit_page.dart';
+import '../pages/liquid_level_sensor_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -62,6 +63,7 @@ class AppRoutes {
   static const String rfidBatchIn = '/rfid_batch_in';
   static const String deviceStatus = '/device_status';
   static const String dashboardCockpit = '/dashboard_cockpit';
+  static const String liquidLevelSensor = '/liquid_level_sensor';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const LoginPage(),
@@ -96,6 +98,7 @@ class AppRoutes {
         rfidBatchIn: (context) => const RfidBatchInPage(),
         deviceStatus: (context) => const DeviceStatusPage(),
         dashboardCockpit: (context) => const DashboardCockpitPage(),
+        liquidLevelSensor: (context) => const LiquidLevelSensorPage(),
       };
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {

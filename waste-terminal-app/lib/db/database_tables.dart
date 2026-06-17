@@ -1,7 +1,7 @@
 class DatabaseTables {
   DatabaseTables._();
 
-  static const int dbVersion = 7;
+  static const int dbVersion = 8;
   static const String dbName = 'waste_terminal.db';
 
   static const String tableWasteCatalog = 'waste_catalog';
@@ -24,6 +24,8 @@ class DatabaseTables {
   static const String tableTransportTrack = 'transport_track';
   static const String tableTransportTrackPoint = 'transport_track_point';
   static const String tableWasteOutReview = 'waste_out_review';
+  static const String tableLevelSensor = 'level_sensor';
+  static const String tableLevelReading = 'level_reading';
 
   static const String createTableWasteCatalog = '''
     CREATE TABLE $tableWasteCatalog (

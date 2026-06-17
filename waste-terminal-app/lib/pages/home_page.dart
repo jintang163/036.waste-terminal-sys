@@ -338,6 +338,12 @@ class _HomePageState extends State<HomePage> {
         color: const Color(0xFFE91E63),
         route: AppRoutes.dashboardCockpit,
       ),
+      _ActionItem(
+        icon: Icons.water_drop,
+        label: '液位监控',
+        color: const Color(0xFF2196F3),
+        route: AppRoutes.liquidLevelSensor,
+      ),
     ];
 
     return Column(

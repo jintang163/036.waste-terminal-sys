@@ -21,6 +21,9 @@ enum BluetoothDeviceType {
   /// RFID读卡器
   rfid,
 
+  /// 液位传感器
+  levelSensor,
+
   /// 其他
   other,
 }
@@ -76,6 +79,14 @@ class BluetoothDeviceInfo {
         upperName.contains('READER') ||
         upperName.contains('读卡')) {
       return BluetoothDeviceType.rfid;
+    }
+    if (upperName.contains('LEVEL') ||
+        upperName.contains('LIQUID') ||
+        upperName.contains('液位') ||
+        upperName.contains('传感') ||
+        upperName.contains('SENSOR') ||
+        upperName.contains('LS-')) {
+      return BluetoothDeviceType.levelSensor;
     }
     return BluetoothDeviceType.other;
   }
@@ -249,10 +260,13 @@ class BluetoothService {
       StreamController<String>.broadcast();
   final StreamController<String> _rfidTagStreamController =
       StreamController<String>.broadcast();
+  final StreamController<double> _liquidLevelStreamController =
+      StreamController<double>.broadcast();
 
   final List<BluetoothDeviceInfo> _scanResults = [];
   final List<int> _weightBuffer = [];
   final List<int> _rfidBuffer = [];
+  final List<int> _levelSensorBuffer = [];
   StreamSubscription<List<int>>? _notifySubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
 
@@ -266,6 +280,8 @@ class BluetoothService {
       _isConnected && _connectedDeviceType == BluetoothDeviceType.scale;
   bool get isRfidConnected =>
       _isConnected && _connectedDeviceType == BluetoothDeviceType.rfid;
+  bool get isLevelSensorConnected =>
+      _isConnected && _connectedDeviceType == BluetoothDeviceType.levelSensor;
   BluetoothDevice? get connectedDevice => _connectedDevice;
   BluetoothDeviceType? get connectedDeviceType => _connectedDeviceType;
   String? get connectedDeviceName => _connectedDevice?.localName.isNotEmpty == true
@@ -280,6 +296,7 @@ class BluetoothService {
   Stream<double> get weightStream => _weightStreamController.stream;
   Stream<String> get scaleDataStream => _scaleDataStreamController.stream;
   Stream<String> get rfidTagStream => _rfidTagStreamController.stream;
+  Stream<double> get liquidLevelStream => _liquidLevelStreamController.stream;
 
   /// 检查蓝牙是否支持
   Future<bool> isBluetoothAvailable() async {
@@ -454,6 +471,12 @@ class BluetoothService {
         await SpUtil.putString(
             StorageConstants.connectedRfidName, deviceName);
         _startListeningRfidData();
+      } else if (_connectedDeviceType == BluetoothDeviceType.levelSensor) {
+        await SpUtil.putString(StorageConstants.connectedLevelSensorAddress,
+            device.remoteId.toString());
+        await SpUtil.putString(
+            StorageConstants.connectedLevelSensorName, deviceName);
+        _startListeningLevelSensorData();
       }
     } catch (e) {
       LoggerUtil.error('连接蓝牙设备失败', e);
@@ -550,6 +573,8 @@ class BluetoothService {
                 _parseScaleData(value);
               } else if (_connectedDeviceType == BluetoothDeviceType.rfid) {
                 _parseRfidData(value);
+              } else if (_connectedDeviceType == BluetoothDeviceType.levelSensor) {
+                _parseLevelSensorData(value);
               }
             }
           });
@@ -586,6 +611,7 @@ class BluetoothService {
       _connectedDeviceType = null;
       _weightBuffer.clear();
       _rfidBuffer.clear();
+      _levelSensorBuffer.clear();
       _connectionStateController.add(false);
     } catch (e) {
       LoggerUtil.error('断开蓝牙设备失败', e);
@@ -1051,6 +1077,136 @@ class BluetoothService {
     await sendData([0xBB, 0x00, 0x28, 0x00, 0x00, 0x28, 0x7E]);
   }
 
+  // ==================== 液位传感器相关方法 ====================
+
+  Future<bool> autoConnectLevelSensor() async {
+    try {
+      final address = SpUtil.getString(StorageConstants.connectedLevelSensorAddress);
+      if (address == null || address.isEmpty) return false;
+      await connectByAddress(address);
+      return isLevelSensorConnected;
+    } catch (e) {
+      LoggerUtil.warning('自动连接液位传感器失败: $e');
+      return false;
+    }
+  }
+
+  Future<bool> checkLevelSensorReady() async {
+    if (!isLevelSensorConnected) {
+      return await autoConnectLevelSensor();
+    }
+    return true;
+  }
+
+  void _startListeningLevelSensorData() {
+    _levelSensorBuffer.clear();
+    LoggerUtil.debug('开始监听液位传感器数据');
+  }
+
+  void _parseLevelSensorData(List<int> data) {
+    _levelSensorBuffer.addAll(data);
+
+    while (_levelSensorBuffer.isNotEmpty) {
+      int startIndex = -1;
+      int endIndex = -1;
+
+      for (int i = 0; i < _levelSensorBuffer.length; i++) {
+        if (_levelSensorBuffer[i] == 0xAA ||
+            _levelSensorBuffer[i] == 0x55 ||
+            _levelSensorBuffer[i] == 0x3A ||
+            _levelSensorBuffer[i] == 0x3C) {
+          startIndex = i;
+          break;
+        }
+      }
+
+      if (startIndex == -1) {
+        _levelSensorBuffer.clear();
+        return;
+      }
+
+      for (int i = startIndex; i < _levelSensorBuffer.length; i++) {
+        if (_levelSensorBuffer[i] == 0x0D ||
+            _levelSensorBuffer[i] == 0x0A ||
+            _levelSensorBuffer[i] == 0x3E ||
+            _levelSensorBuffer[i] == 0x55 ||
+            (i - startIndex >= 7)) {
+          endIndex = i;
+          break;
+        }
+      }
+
+      if (endIndex == -1) {
+        if (_levelSensorBuffer.length > 64) {
+          _levelSensorBuffer.removeRange(0, startIndex + 1);
+        }
+        return;
+      }
+
+      final frameData = _levelSensorBuffer.sublist(startIndex, endIndex + 1);
+      if (endIndex + 1 <= _levelSensorBuffer.length) {
+        _levelSensorBuffer.removeRange(0, endIndex + 1);
+      } else {
+        _levelSensorBuffer.clear();
+      }
+
+      try {
+        final level = _decodeLiquidLevel(frameData);
+        if (level != null) {
+          _liquidLevelStreamController.add(level);
+        }
+      } catch (e) {
+        LoggerUtil.debug('解析液位传感器数据失败: $e');
+      }
+    }
+  }
+
+  double? _decodeLiquidLevel(List<int> data) {
+    try {
+      if (data.isEmpty) return null;
+
+      String str = String.fromCharCodes(data);
+      final numericRegex = RegExp(r'[-+]?\d+\.?\d*');
+      final matches = numericRegex.allMatches(str);
+      for (final m in matches) {
+        final numStr = m.group(0);
+        if (numStr != null) {
+          final val = double.tryParse(numStr);
+          if (val != null && val >= 0 && val <= 100) {
+            return val;
+          }
+        }
+      }
+
+      if (data.length >= 4) {
+        try {
+          final byteData = ByteData.sublistView(Uint8List.fromList(data));
+          if (data.length >= 4) {
+            final floatValue = byteData.getFloat32(0, Endian.little);
+            if (floatValue >= 0 && floatValue <= 100) {
+              return floatValue;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (data.length >= 2) {
+        try {
+          int high = data[data.length - 2] & 0xFF;
+          int low = data[data.length - 1] & 0xFF;
+          double val = (high * 256 + low) / 10.0;
+          if (val >= 0 && val <= 100) {
+            return val;
+          }
+        } catch (_) {}
+      }
+
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// 释放资源
   void dispose() {
     stopScan();
@@ -1061,5 +1217,6 @@ class BluetoothService {
     _weightStreamController.close();
     _scaleDataStreamController.close();
     _rfidTagStreamController.close();
+    _liquidLevelStreamController.close();
   }
 }

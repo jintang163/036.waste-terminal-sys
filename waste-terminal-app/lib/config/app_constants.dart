@@ -50,6 +50,24 @@ class StorageConstants {
   /// 已连接的RFID读卡器名称
   static const String connectedRfidName = 'connected_rfid_name';
 
+  /// 已连接的液位传感器地址
+  static const String connectedLevelSensorAddress = 'connected_level_sensor_address';
+
+  /// 已连接的液位传感器名称
+  static const String connectedLevelSensorName = 'connected_level_sensor_name';
+
+  /// 液位预警阈值（接近满，%）
+  static const String levelWarningNearFull = 'level_warning_near_full';
+
+  /// 液位满溢阈值（满，%）
+  static const String levelWarningFull = 'level_warning_full';
+
+  /// 液位传感器绑定的容器编码
+  static const String levelSensorContainerCode = 'level_sensor_container_code';
+
+  /// 液位传感器防抖采样次数
+  static const String levelSensorStableSamples = 'level_sensor_stable_samples';
+
   /// 地磅连接方式（bluetooth/usb）
   static const String scaleConnectionType = 'scale_connection_type';
 
@@ -123,6 +141,7 @@ class RouteConstants {
   static const String scaleConfig = '/scale_config';
   static const String scaleCalibration = '/scale_calibration';
   static const String deviceStatus = '/device_status';
+  static const String liquidLevelSensor = '/liquid_level_sensor';
   static const String mine = '/mine';
   static const String profile = '/profile';
   static const String settings = '/settings';
@@ -204,6 +223,12 @@ class EventConstants {
 
   /// 容器更新
   static const String containerUpdated = 'container_updated';
+
+  /// 液位变化
+  static const String liquidLevelChanged = 'liquid_level_changed';
+
+  /// 液位预警（接近满/满）
+  static const String liquidLevelWarning = 'liquid_level_warning';
 
   /// 危废名录更新
   static const String wasteCatalogUpdated = 'waste_catalog_updated';
@@ -367,6 +392,12 @@ class BusinessConstants {
 
   /// 预警类型：容器异常
   static const String warningTypeContainer = 'container';
+
+  /// 预警类型：液位满溢
+  static const String warningTypeLiquidLevel = 'liquid_level';
+
+  /// 预警类型：液位接近满
+  static const String warningTypeLiquidNearFull = 'liquid_near_full';
 
   /// 预警类型：设备异常
   static const String warningTypeDevice = 'device';
