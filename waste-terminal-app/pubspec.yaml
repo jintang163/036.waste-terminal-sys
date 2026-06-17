@@ -32,6 +32,9 @@ dependencies:
   uuid: ^4.2.1
   decimal: ^2.3.3
 
+  # 图表
+  fl_chart: ^0.68.0
+
   # UI 组件
   flutter_screenutil: ^5.9.0
   flutter_easyloading: ^3.0.5

@@ -332,6 +332,12 @@ class _HomePageState extends State<HomePage> {
         color: Colors.blueAccent,
         route: AppRoutes.wasteLedger,
       ),
+      _ActionItem(
+        icon: Icons.dashboard_customize,
+        label: '数据驾驶舱',
+        color: const Color(0xFFE91E63),
+        route: AppRoutes.dashboardCockpit,
+      ),
     ];
 
     return Column(
