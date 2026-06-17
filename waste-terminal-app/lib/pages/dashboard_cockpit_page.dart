@@ -212,7 +212,7 @@ class _DashboardCockpitPageState extends State<DashboardCockpitPage> {
     if (maxWeight == 0) maxWeight = 10;
 
     return _buildChartCard(
-      '本月入库趋势（近30天）',
+      '本月入库趋势',
       SizedBox(
         height: 200.h,
         child: LineChart(
@@ -476,7 +476,7 @@ class _DashboardCockpitPageState extends State<DashboardCockpitPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('预警统计', style: AppTextStyle.subtitle),
+              Text('本月预警', style: AppTextStyle.subtitle),
               if (stat.unhandled > 0)
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),

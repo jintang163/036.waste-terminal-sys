@@ -46,9 +46,9 @@ class WarningStat {
 
 class ProductionPoint {
   final String name;
-  final String? id;
+  final String? warehouseId;
 
-  ProductionPoint({required this.name, this.id});
+  ProductionPoint({required this.name, this.warehouseId});
 }
 
 class DashboardOverview {
@@ -75,28 +75,48 @@ class DashboardCockpitService {
 
   DashboardCockpitService._internal();
 
-  String _dateRangeStart() {
+  String _monthStartDate() {
     final now = DateTime.now();
-    final start = now.subtract(const Duration(days: 30));
-    return '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
   }
 
-  String _dateRangeEnd() {
+  String _todayDate() {
     final now = DateTime.now();
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
-  Future<DashboardOverview> getOverview({String? warehouse}) async {
+  void _appendWarehouseFilter(
+    String warehouseId,
+    StringBuffer where,
+    List<dynamic> args, {
+    String tableAlias = '',
+    String column = 'warehouse_id',
+  }) {
+    final prefix = tableAlias.isNotEmpty ? '$tableAlias.' : '';
+    where.write(' AND ${prefix}$column = ?');
+    args.add(warehouseId);
+  }
+
+  void _appendWarehouseFilterForWarning(
+    String warehouseId,
+    StringBuffer where,
+    List<dynamic> args,
+  ) {
+    where.write(
+      ' AND container_code IN (SELECT container_code FROM ${DatabaseTables.tableWasteInventory} WHERE warehouse_id = ? AND is_deleted = 0)',
+    );
+    args.add(warehouseId);
+  }
+
+  Future<DashboardOverview> getOverview({String? warehouseId}) async {
     try {
       final db = await _dbHelper.database;
-      final startDate = _dateRangeStart();
+      final startDate = _monthStartDate();
 
-      String inWhere =
-          'is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL';
-      List<dynamic> inArgs = [startDate];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        inWhere += ' AND warehouse = ?';
-        inArgs.add(warehouse);
+      final inWhere = StringBuffer('is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL');
+      final inArgs = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, inWhere, inArgs);
       }
 
       final inResult = await db.rawQuery(
@@ -104,12 +124,10 @@ class DashboardCockpitService {
         inArgs,
       );
 
-      String catWhere =
-          'is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL';
-      List<dynamic> catArgs = [startDate];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        catWhere += ' AND warehouse = ?';
-        catArgs.add(warehouse);
+      final catWhere = StringBuffer('is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL');
+      final catArgs = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, catWhere, catArgs);
       }
 
       final catResult = await db.rawQuery(
@@ -117,11 +135,10 @@ class DashboardCockpitService {
         catArgs,
       );
 
-      String warnWhere = 'is_deleted = 0';
-      List<dynamic> warnArgs = [];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        warnWhere += ' AND container_code IN (SELECT container_code FROM ${DatabaseTables.tableWasteInventory} WHERE warehouse = ? AND is_deleted = 0)';
-        warnArgs.add(warehouse);
+      final warnWhere = StringBuffer('is_deleted = 0 AND warning_time >= ?');
+      final warnArgs = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilterForWarning(warehouseId, warnWhere, warnArgs);
       }
 
       final warnResult = await db.rawQuery(
@@ -143,17 +160,15 @@ class DashboardCockpitService {
   }
 
   Future<List<DailyInboundStat>> getDailyInboundTrend(
-      {String? warehouse}) async {
+      {String? warehouseId}) async {
     try {
       final db = await _dbHelper.database;
-      final startDate = _dateRangeStart();
+      final startDate = _monthStartDate();
 
-      String where =
-          'is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL';
-      List<dynamic> args = [startDate];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        where += ' AND warehouse = ?';
-        args.add(warehouse);
+      final where = StringBuffer('is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL');
+      final args = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, where, args);
       }
 
       final result = await db.rawQuery(
@@ -163,7 +178,9 @@ class DashboardCockpitService {
 
       Map<String, DailyInboundStat> statMap = {};
       final now = DateTime.now();
-      for (int i = 30; i >= 0; i--) {
+      final firstDayOfMonth = DateTime(now.year, now.month, 1);
+      final diff = now.difference(firstDayOfMonth).inDays;
+      for (int i = diff; i >= 0; i--) {
         final d = now.subtract(Duration(days: i));
         final key =
             '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -189,17 +206,15 @@ class DashboardCockpitService {
   }
 
   Future<List<CategoryProportion>> getCategoryProportion(
-      {String? warehouse}) async {
+      {String? warehouseId}) async {
     try {
       final db = await _dbHelper.database;
-      final startDate = _dateRangeStart();
+      final startDate = _monthStartDate();
 
-      String where =
-          'is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL';
-      List<dynamic> args = [startDate];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        where += ' AND warehouse = ?';
-        args.add(warehouse);
+      final where = StringBuffer('is_deleted = 0 AND in_time >= ? AND in_time IS NOT NULL');
+      final args = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, where, args);
       }
 
       final result = await db.rawQuery(
@@ -221,47 +236,50 @@ class DashboardCockpitService {
     }
   }
 
-  Future<WarningStat> getWarningStat({String? warehouse}) async {
+  Future<WarningStat> getWarningStat({String? warehouseId}) async {
     try {
       final db = await _dbHelper.database;
+      final startDate = _monthStartDate();
 
-      String where = 'is_deleted = 0';
-      List<dynamic> args = [];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        where +=
-            ' AND container_code IN (SELECT container_code FROM ${DatabaseTables.tableWasteInventory} WHERE warehouse = ? AND is_deleted = 0)';
-        args.add(warehouse);
+      final baseWhere = StringBuffer('is_deleted = 0 AND warning_time >= ?');
+      final baseArgs = <dynamic>[startDate];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilterForWarning(warehouseId, baseWhere, baseArgs);
       }
 
       final totalResult = await db.rawQuery(
-        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $where',
-        args,
+        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $baseWhere',
+        baseArgs,
       );
 
-      String unhandledWhere = '$where AND status = 0';
+      final unhandledWhere = StringBuffer(baseWhere.toString())..write(' AND status = 0');
       final unhandledResult = await db.rawQuery(
         'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $unhandledWhere',
-        args,
+        baseArgs,
       );
 
+      final level1Where = StringBuffer(baseWhere.toString())..write(' AND warning_level = 1');
       final level1Result = await db.rawQuery(
-        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $where AND warning_level = 1',
-        args,
-      );
-      final level2Result = await db.rawQuery(
-        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $where AND warning_level = 2',
-        args,
-      );
-      final level3Result = await db.rawQuery(
-        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $where AND warning_level = 3',
-        args,
+        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $level1Where',
+        baseArgs,
       );
 
-      String recentWhere = '$where ORDER BY warning_time DESC LIMIT 5';
+      final level2Where = StringBuffer(baseWhere.toString())..write(' AND warning_level = 2');
+      final level2Result = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $level2Where',
+        baseArgs,
+      );
+
+      final level3Where = StringBuffer(baseWhere.toString())..write(' AND warning_level = 3');
+      final level3Result = await db.rawQuery(
+        'SELECT COUNT(*) as cnt FROM ${DatabaseTables.tableWarningRecord} WHERE $level3Where',
+        baseArgs,
+      );
+
       final recentResult = await db.query(
         DatabaseTables.tableWarningRecord,
-        where: where.isNotEmpty ? 'is_deleted = 0' : null,
-        whereArgs: args.isNotEmpty ? args : null,
+        where: baseWhere.toString(),
+        whereArgs: baseArgs,
         orderBy: 'warning_time DESC',
         limit: 5,
       );
@@ -285,7 +303,7 @@ class DashboardCockpitService {
       final db = await _dbHelper.database;
 
       final result = await db.rawQuery(
-        'SELECT DISTINCT warehouse FROM ${DatabaseTables.tableWasteInRecord} WHERE is_deleted = 0 AND warehouse IS NOT NULL AND warehouse != "" ORDER BY warehouse',
+        'SELECT DISTINCT warehouse_id, warehouse FROM ${DatabaseTables.tableWasteInventory} WHERE is_deleted = 0 AND warehouse_id IS NOT NULL AND warehouse_id != "" ORDER BY warehouse',
       );
 
       final points = <ProductionPoint>[
@@ -294,8 +312,29 @@ class DashboardCockpitService {
 
       for (var row in result) {
         final name = row['warehouse'] as String?;
-        if (name != null && name.isNotEmpty) {
-          points.add(ProductionPoint(name: name, id: name));
+        final id = row['warehouse_id'] as String?;
+        if (id != null && id.isNotEmpty) {
+          points.add(ProductionPoint(
+            name: (name != null && name.isNotEmpty) ? name : id,
+            warehouseId: id,
+          ));
+        }
+      }
+
+      if (points.length <= 1) {
+        final fallbackResult = await db.rawQuery(
+          'SELECT DISTINCT warehouse_id, warehouse FROM ${DatabaseTables.tableWasteInRecord} WHERE is_deleted = 0 AND warehouse_id IS NOT NULL AND warehouse_id != "" ORDER BY warehouse',
+        );
+
+        for (var row in fallbackResult) {
+          final name = row['warehouse'] as String?;
+          final id = row['warehouse_id'] as String?;
+          if (id != null && id.isNotEmpty) {
+            points.add(ProductionPoint(
+              name: (name != null && name.isNotEmpty) ? name : id,
+              warehouseId: id,
+            ));
+          }
         }
       }
 
@@ -307,20 +346,19 @@ class DashboardCockpitService {
   }
 
   Future<List<Map<String, dynamic>>> getInboundDetailsByDate(
-      String date, String? warehouse) async {
+      String date, String? warehouseId) async {
     try {
       final db = await _dbHelper.database;
 
-      String where = 'is_deleted = 0 AND DATE(in_time) = ?';
-      List<dynamic> args = [date];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        where += ' AND warehouse = ?';
-        args.add(warehouse);
+      final where = StringBuffer('is_deleted = 0 AND DATE(in_time) = ?');
+      final args = <dynamic>[date];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, where, args);
       }
 
       return await db.query(
         DatabaseTables.tableWasteInRecord,
-        where: where,
+        where: where.toString(),
         whereArgs: args,
         orderBy: 'in_time DESC',
       );
@@ -331,22 +369,20 @@ class DashboardCockpitService {
   }
 
   Future<List<Map<String, dynamic>>> getInboundDetailsByCategory(
-      String category, String? warehouse) async {
+      String category, String? warehouseId) async {
     try {
       final db = await _dbHelper.database;
-      final startDate = _dateRangeStart();
+      final startDate = _monthStartDate();
 
-      String where =
-          'is_deleted = 0 AND in_time >= ? AND waste_category = ?';
-      List<dynamic> args = [startDate, category];
-      if (warehouse != null && warehouse.isNotEmpty) {
-        where += ' AND warehouse = ?';
-        args.add(warehouse);
+      final where = StringBuffer('is_deleted = 0 AND in_time >= ? AND waste_category = ?');
+      final args = <dynamic>[startDate, category];
+      if (warehouseId != null && warehouseId.isNotEmpty) {
+        _appendWarehouseFilter(warehouseId, where, args);
       }
 
       return await db.query(
         DatabaseTables.tableWasteInRecord,
-        where: where,
+        where: where.toString(),
         whereArgs: args,
         orderBy: 'in_time DESC',
       );

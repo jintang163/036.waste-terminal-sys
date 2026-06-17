@@ -18,7 +18,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
   WarningStat? _warningStat;
   List<ProductionPoint> _productionPoints = [];
 
-  String? _selectedWarehouse;
+  String? _selectedWarehouseId;
   int _selectedPointIndex = 0;
 
   List<DailyInboundStat> _inboundDetails = [];
@@ -32,7 +32,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
   List<CategoryProportion> get categoryProportion => _categoryProportion;
   WarningStat? get warningStat => _warningStat;
   List<ProductionPoint> get productionPoints => _productionPoints;
-  String? get selectedWarehouse => _selectedWarehouse;
+  String? get selectedWarehouseId => _selectedWarehouseId;
   int get selectedPointIndex => _selectedPointIndex;
   List<DailyInboundStat> get inboundDetails => _inboundDetails;
   bool get showingDetails => _showingDetails;
@@ -59,10 +59,10 @@ class DashboardCockpitProvider extends ChangeNotifier {
 
     try {
       final results = await Future.wait([
-        _service.getOverview(warehouse: _selectedWarehouse),
-        _service.getDailyInboundTrend(warehouse: _selectedWarehouse),
-        _service.getCategoryProportion(warehouse: _selectedWarehouse),
-        _service.getWarningStat(warehouse: _selectedWarehouse),
+        _service.getOverview(warehouseId: _selectedWarehouseId),
+        _service.getDailyInboundTrend(warehouseId: _selectedWarehouseId),
+        _service.getCategoryProportion(warehouseId: _selectedWarehouseId),
+        _service.getWarningStat(warehouseId: _selectedWarehouseId),
       ]);
 
       _overview = results[0] as DashboardOverview;
@@ -86,7 +86,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
 
     _selectedPointIndex = index;
     final point = _productionPoints[index];
-    _selectedWarehouse = point.id;
+    _selectedWarehouseId = point.warehouseId;
 
     notifyListeners();
     await loadAllData();
@@ -95,7 +95,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
   Future<void> loadInboundDetailsByDate(String date) async {
     try {
       final records =
-          await _service.getInboundDetailsByDate(date, _selectedWarehouse);
+          await _service.getInboundDetailsByDate(date, _selectedWarehouseId);
       _inboundDetails = [];
       _detailTitle = date;
       _showingDetails = true;
@@ -108,7 +108,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getInboundDetailsByDate(
       String date) async {
     try {
-      return await _service.getInboundDetailsByDate(date, _selectedWarehouse);
+      return await _service.getInboundDetailsByDate(date, _selectedWarehouseId);
     } catch (e) {
       _logger.e('加载日期入库明细失败: $e');
       return [];
@@ -119,7 +119,7 @@ class DashboardCockpitProvider extends ChangeNotifier {
       String category) async {
     try {
       return await _service.getInboundDetailsByCategory(
-          category, _selectedWarehouse);
+          category, _selectedWarehouseId);
     } catch (e) {
       _logger.e('加载类别入库明细失败: $e');
       return [];
